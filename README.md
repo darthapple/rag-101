@@ -1,5 +1,14 @@
 # RAG 101: Medical Document Q&A System
 
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Latest-green.svg)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Latest-red.svg)](https://streamlit.io/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![RAG](https://img.shields.io/badge/RAG-Architecture-orange.svg)](docs/PRD.md)
+[![Milvus](https://img.shields.io/badge/Vector_DB-Milvus-purple.svg)](https://milvus.io/)
+[![NATS](https://img.shields.io/badge/Messaging-NATS-lightblue.svg)](https://nats.io/)
+
 A complete **Retrieval Augmented Generation (RAG)** system that answers questions about illnesses based on Brazilian clinical protocols. This project demonstrates modern RAG architecture using real-time messaging, vector search, and AI-powered question answering.
 
 ## What This System Does
