@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "rag-101-ui"
+version = "0.1.0"
+description = "Streamlit UI service for RAG-101 medical document Q&A system"
+authors = ["RAG-101 Team"]
+readme = "README.md"
+packages = [{include = "ui", from = "."}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+streamlit = "^1.28.0"
+nats-py = "^2.6.0"
+requests = "^2.31.0"
+plotly = "^5.17.0"
+pandas = "^2.1.0"
+websockets = "^11.0.0"
+asyncio-mqtt = "^0.16.0"
+python-dateutil = "^2.8.0"
+pydantic = "^2.5.0"
+httpx = "^0.25.0"
+streamlit-autorefresh = "^1.0.0"
+st-pages = "^0.4.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+black = "^23.9.0"
+isort = "^5.12.0"
+flake8 = "^6.1.0"
+mypy = "^1.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+ui = "ui.main:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
