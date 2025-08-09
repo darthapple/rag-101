@@ -1,0 +1,1749 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up project structure and shared utilities module",
+        "description": "Create the foundational project structure with services directory and shared utilities module for common functionality across all services",
+        "details": "Create services/ directory with worker/, api/, ui/ subdirectories. Create shared/ module with __init__.py files and proper Python package structure",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create main services directory structure",
+            "description": "Create the services/ directory with worker/, api/, and ui/ subdirectories",
+            "dependencies": [],
+            "details": "Create the main services/ directory and three subdirectories: services/worker/ for background processing, services/api/ for FastAPI service, and services/ui/ for Streamlit interface. Ensure proper directory permissions and structure matches the expected architecture.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Create shared utilities module structure",
+            "description": "Create the shared/ directory with proper Python package initialization",
+            "dependencies": [],
+            "details": "Create shared/ directory at project root level with __init__.py file to make it a proper Python package. This will contain common utilities used across all services including database operations, messaging, models, and configuration management.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Initialize Python package files across all directories",
+            "description": "Add __init__.py files to all service directories to ensure proper Python package structure",
+            "dependencies": [
+              "1.1",
+              "1.2"
+            ],
+            "details": "Add __init__.py files to services/, services/worker/, services/api/, services/ui/, and shared/ directories. This ensures all directories are recognized as Python packages and enables proper module imports across the application.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Create shared database utilities for Milvus operations",
+        "description": "Implement Milvus connection management, collection creation, vector search operations, and data insertion functionality",
+        "details": "Create database.py with MilvusClient connection, collection schema creation (medical_documents), vector search functions, batch insert operations, and health check functionality. Include proper error handling and connection pooling.",
+        "testStrategy": "Unit tests for connection, collection operations, search functionality, and error handling scenarios",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Milvus client connection and configuration",
+            "description": "Create MilvusClient initialization with connection pooling and configuration management",
+            "dependencies": [],
+            "details": "Implement MilvusClient setup with connection string parsing, connection pooling configuration, authentication handling, and connection validation. Include environment variable configuration for host, port, and credentials. Implement connection retry logic and timeout handling.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Define medical_documents collection schema",
+            "description": "Create collection schema definition with proper field types and indexing configuration",
+            "dependencies": [
+              "2.1"
+            ],
+            "details": "Define collection schema for medical_documents with fields: chunk_id (primary key), embedding (768-dimensional vector), text_content, document_title, source_url, page_number, diseases, processed_at, and job_id. Configure IVF_FLAT index with COSINE similarity for optimal search performance.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement collection management operations",
+            "description": "Create functions for collection creation, deletion, and schema management",
+            "dependencies": [
+              "2.2"
+            ],
+            "details": "Implement create_collection(), drop_collection(), collection_exists(), and get_collection_info() functions. Include automatic collection creation on first use, schema validation, and collection statistics retrieval. Add proper error handling for collection operations.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement vector search and CRUD operations",
+            "description": "Create vector similarity search, data insertion, and retrieval functions",
+            "dependencies": [
+              "2.3"
+            ],
+            "details": "Implement similarity_search() with top-K retrieval, batch_insert() for efficient data loading, get_by_id() for specific document retrieval, and delete_by_filter() for data cleanup. Include search result ranking, metadata filtering, and pagination support.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Add error handling and health check functionality",
+            "description": "Implement comprehensive error handling and database health monitoring",
+            "dependencies": [
+              "2.4"
+            ],
+            "details": "Create custom exception classes for Milvus operations, implement health_check() function for connection status monitoring, add logging for all database operations, and implement graceful degradation for connection failures. Include connection recovery mechanisms and performance monitoring.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Create shared messaging utilities for NATS operations",
+        "description": "Implement NATS client connection, JetStream operations, pub/sub patterns, and KV store management",
+        "details": "Create messaging.py with NATS client connection management, JetStream consumer/producer setup, publish/subscribe functions, KV store operations for sessions, and TTL-based message management. Include topic configuration and error handling.",
+        "testStrategy": "Unit tests for NATS connection, pub/sub operations, KV store functions, and TTL behavior",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement NATS client connection management",
+            "description": "Create core NATS client with connection lifecycle, reconnection handling, and configuration management",
+            "dependencies": [],
+            "details": "Implement NATSClient class with async connection management, automatic reconnection with exponential backoff, connection pooling, health checks, and proper cleanup. Include configuration for server URLs, credentials, and connection options.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Set up JetStream consumer and producer operations",
+            "description": "Implement JetStream stream and consumer management with durable subscriptions",
+            "dependencies": [
+              "3.1"
+            ],
+            "details": "Create JetStream manager with stream creation/validation, durable consumer setup, message acknowledgment handling, and batch processing capabilities. Configure streams for questions, documents, embeddings, and answers topics.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement publish/subscribe message patterns",
+            "description": "Create pub/sub functions for topic-based messaging with proper serialization",
+            "dependencies": [
+              "3.2"
+            ],
+            "details": "Implement async publish/subscribe functions with JSON serialization, message headers, topic validation, and delivery confirmation. Support both JetStream and core NATS patterns with appropriate error handling.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement NATS KV store operations for session management",
+            "description": "Create KV store interface for session data with TTL support",
+            "dependencies": [
+              "3.1"
+            ],
+            "details": "Implement KV store operations (get, put, delete, list) with automatic TTL configuration, session data serialization, key validation, and bucket management. Support session metadata storage and retrieval.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement TTL-based message and data management",
+            "description": "Configure automatic cleanup and expiration for messages and session data",
+            "dependencies": [
+              "3.3",
+              "3.4"
+            ],
+            "details": "Implement TTL configuration for JetStream messages, KV store entries, and consumer acknowledgments. Create cleanup utilities for expired data, monitoring for TTL effectiveness, and configurable expiration policies.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Add comprehensive error handling and logging",
+            "description": "Implement error handling, logging, and monitoring for all NATS operations",
+            "dependencies": [
+              "3.5"
+            ],
+            "details": "Add structured error handling with retry logic, connection failure recovery, timeout management, and comprehensive logging. Include metrics collection for connection health, message throughput, and error rates.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Define shared data models",
+        "description": "Create Pydantic models for Session, Question, Answer, Document, and other shared data structures",
+        "details": "Create models.py with Pydantic models: Session (session_id, nickname, created_at, expires_at), Question (message_id, session_id, question, submitted_at), Answer (message_id, session_id, answer, sources, generated_at), Document (job_id, url, title, status), and chunk models for vector storage.",
+        "testStrategy": "Unit tests for model validation, serialization/deserialization, and field constraints",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Session data models",
+            "description": "Implement Pydantic models for session management including Session, SessionCreate, and SessionStatus models",
+            "dependencies": [],
+            "details": "Create Session model with session_id (UUID), nickname (str), created_at (datetime), expires_at (datetime). Add SessionCreate model for session creation requests with nickname validation. Include SessionStatus enum for session state tracking and SessionResponse model for API responses.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Create Document and processing models",
+            "description": "Implement Pydantic models for document processing workflow including Document, DocumentChunk, and processing status models",
+            "dependencies": [],
+            "details": "Create Document model with job_id (UUID), url (HttpUrl), title (str), status (DocumentStatus enum), processed_at (datetime). Add DocumentChunk model for vector storage with chunk_id, text_content, document_title, source_url, page_number, diseases list. Include DocumentDownloadRequest and DocumentProcessingStatus models.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create Question and Answer models",
+            "description": "Implement Pydantic models for Q&A workflow including Question, Answer, and source attribution models",
+            "dependencies": [],
+            "details": "Create Question model with message_id (UUID), session_id (UUID), question (str), submitted_at (datetime). Add Answer model with message_id, session_id, answer, sources list, generated_at, confidence_score. Include AnswerSource model for source attribution with document references and QuestionRequest/AnswerResponse for API interactions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create validation utilities and base configurations",
+            "description": "Implement shared validation utilities, serialization helpers, and base model configurations",
+            "dependencies": [
+              "4.1",
+              "4.2",
+              "4.3"
+            ],
+            "details": "Create BaseModel configuration with proper JSON encoders for datetime/UUID, field validators for common patterns (session_id, message_id validation), serialization utilities for NATS message conversion, and validation helpers for model consistency across services. Add custom exception models for API error responses.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement configuration management",
+        "description": "Create centralized configuration management with environment variables and validation",
+        "details": "Create config.py with configuration classes for NATS settings (URL, TTL values), Milvus settings (host, port, collection name), Gemini API settings (API key, model names), and service-specific configs. Use Pydantic for validation and environment variable loading.",
+        "testStrategy": "Unit tests for configuration loading, environment variable parsing, and validation scenarios",
+        "status": "pending",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create base configuration structure and environment variable loading",
+            "description": "Set up the foundational config.py file with Pydantic BaseSettings and environment variable loading mechanisms",
+            "dependencies": [],
+            "details": "Create shared/config.py with Pydantic BaseSettings base class, implement environment variable loading with .env file support, set up configuration class inheritance structure, and establish naming conventions for environment variables (e.g., NATS_URL, MILVUS_HOST, etc.)",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement service-specific configuration classes",
+            "description": "Create dedicated configuration classes for NATS, Milvus, Gemini API, and worker service settings",
+            "dependencies": [
+              "5.1"
+            ],
+            "details": "Define NATSConfig class (URL, TTL values, topic names), MilvusConfig class (host, port, collection name, vector dimension), GeminiConfig class (API key, embedding model, chat model), and WorkerConfig class (concurrency limits, retry settings). Include proper type hints and field descriptions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Add configuration validation and default values",
+            "description": "Implement Pydantic validation rules and establish comprehensive default values for all configuration parameters",
+            "dependencies": [
+              "5.2"
+            ],
+            "details": "Add Pydantic validators for URL formats, port ranges, positive integers, required API keys, and model name validation. Set sensible defaults: NATS_URL='nats://localhost:4222', MILVUS_PORT=19530, TTL=3600, VECTOR_DIMENSION=768, MAX_WORKERS=2, etc. Include validation error messages.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create centralized configuration loader and export main config instance",
+            "description": "Implement a main configuration class that combines all service configs and provide a global config instance",
+            "dependencies": [
+              "5.3"
+            ],
+            "details": "Create AppConfig class that inherits from all service-specific configs, implement singleton pattern or factory function for global config instance, add configuration loading validation at startup, and export the main config object for import by other services. Include environment-specific overrides (dev/prod).",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Create WebSocket connection manager",
+        "description": "Implement WebSocket connection management for real-time answer delivery with session-based routing",
+        "details": "Create websocket_manager.py with WebSocket connection lifecycle management, session-based message routing to answers.{session_id} topics, heartbeat functionality, connection pooling, and graceful disconnection handling. Include NATS integration for real-time message delivery.",
+        "testStrategy": "Unit tests for connection management, session routing, message delivery, and connection lifecycle",
+        "status": "pending",
+        "dependencies": [
+          3,
+          4
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create WebSocket connection lifecycle manager",
+            "description": "Implement WebSocket connection establishment, authentication, and termination handling",
+            "dependencies": [],
+            "details": "Create core WebSocketConnectionManager class with methods for connection establishment, client authentication via session validation, connection tracking in memory store, and proper connection termination with cleanup. Include connection state management and basic error handling.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement session-based message routing",
+            "description": "Create routing system to deliver messages to specific WebSocket connections based on session ID",
+            "dependencies": [
+              "6.1"
+            ],
+            "details": "Implement session-to-connection mapping system, message routing logic for answers.{session_id} topics, connection lookup by session ID, and message delivery to specific clients. Include handling of multiple connections per session and routing validation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Integrate NATS JetStream for real-time messaging",
+            "description": "Connect WebSocket manager to NATS for subscribing to answer topics and message forwarding",
+            "dependencies": [
+              "6.2"
+            ],
+            "details": "Implement NATS JetStream consumer for answers.* wildcard subscription, message parsing and validation, real-time message forwarding to WebSocket clients, subscription lifecycle management, and proper error handling for NATS connection issues.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement heartbeat and health monitoring",
+            "description": "Add WebSocket heartbeat functionality and connection health monitoring",
+            "dependencies": [
+              "6.2"
+            ],
+            "details": "Implement ping/pong heartbeat mechanism with configurable intervals, connection health monitoring and automatic cleanup of dead connections, timeout handling for unresponsive clients, and metrics collection for connection statistics.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create connection pooling and resource management",
+            "description": "Implement connection pooling, rate limiting, and resource optimization",
+            "dependencies": [
+              "6.4"
+            ],
+            "details": "Add connection pooling with maximum connection limits, per-session connection limits, rate limiting for message delivery, memory optimization for connection storage, and graceful handling of resource exhaustion scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Add comprehensive error handling and logging",
+            "description": "Implement robust error handling, logging, and monitoring for WebSocket operations",
+            "dependencies": [
+              "6.3",
+              "6.5"
+            ],
+            "details": "Add comprehensive exception handling for all WebSocket operations, structured logging for connection events and errors, monitoring hooks for external systems, graceful degradation strategies, and detailed error reporting for debugging and operations.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Set up Worker service structure",
+        "description": "Create Worker service Poetry project with main entry point and handler architecture",
+        "details": "Create services/worker/ directory with pyproject.toml, main.py entry point, handlers/ directory with __init__.py, and Dockerfile. Configure Poetry dependencies for NATS, Milvus, LangChain, and Gemini. Set up multiprocessing architecture for concurrent handlers.",
+        "testStrategy": "Integration tests for service startup, handler initialization, and dependency loading",
+        "status": "pending",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Worker service directory structure and Poetry project",
+            "description": "Set up services/worker/ directory with Poetry configuration and project structure",
+            "dependencies": [],
+            "details": "Create services/worker/ directory, initialize Poetry project with pyproject.toml, create basic directory structure including handlers/ with __init__.py, and set up Python package configuration",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Configure Poetry dependencies for Worker service",
+            "description": "Add all required dependencies for NATS, Milvus, LangChain, and Gemini integration",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Configure pyproject.toml with dependencies: nats-py, pymilvus, langchain, langchain-google-genai, google-generativeai, and development dependencies like pytest",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement main.py entry point with multiprocessing architecture",
+            "description": "Create main application entry point with concurrent worker process management",
+            "dependencies": [
+              "7.2"
+            ],
+            "details": "Implement main.py with multiprocessing.Pool for concurrent handlers, signal handling for graceful shutdown, configuration loading, and process monitoring capabilities",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Design handler architecture and base classes",
+            "description": "Create handler base classes and architecture for document, embedding, and Q&A processing",
+            "dependencies": [
+              "7.3"
+            ],
+            "details": "Implement base handler classes in handlers/ directory with common interfaces for NATS message processing, error handling, logging, and shared functionality across different handler types",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create Dockerfile for Worker service containerization",
+            "description": "Set up Docker containerization with proper Python environment and dependency installation",
+            "dependencies": [
+              "7.4"
+            ],
+            "details": "Create Dockerfile with Python 3.11 base image, Poetry installation, dependency caching, proper user permissions, and health check configuration for container orchestration",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Document Handler",
+        "description": "Create Document Handler for PDF download and text chunking using LangChain",
+        "details": "Create handlers/documents.py with PDF download from URLs, LangChain document loaders (PyPDFLoader), RecursiveCharacterTextSplitter (1000 chars, 200 overlap), metadata extraction (title, diseases, page numbers), and publishing chunks to embeddings.create topic. Include error handling for failed downloads.",
+        "testStrategy": "Unit tests for PDF download, text chunking, metadata extraction, and error handling scenarios",
+        "status": "pending",
+        "dependencies": [
+          7
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement PDF download functionality",
+            "description": "Create PDF download logic with proper error handling for URL validation and network failures",
+            "dependencies": [],
+            "details": "Implement URL validation, HTTP requests for PDF download, temporary file handling, and comprehensive error handling for invalid URLs, network timeouts, and corrupted files. Include retry logic and proper cleanup of temporary files.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Integrate LangChain PyPDFLoader",
+            "description": "Set up LangChain document loading with PyPDFLoader for PDF text extraction",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "Configure PyPDFLoader to process downloaded PDFs, handle text extraction from all pages, manage encoding issues, and integrate with LangChain document structure. Include validation for corrupted or password-protected PDFs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement text chunking with RecursiveCharacterTextSplitter",
+            "description": "Configure text chunking using LangChain's RecursiveCharacterTextSplitter with specified parameters",
+            "dependencies": [
+              "8.2"
+            ],
+            "details": "Set up RecursiveCharacterTextSplitter with 1000 character chunks and 200 character overlap, configure separators for optimal chunking, preserve document structure, and ensure proper handling of edge cases like very short documents.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Extract and structure document metadata",
+            "description": "Extract document title, diseases, page numbers and other relevant metadata from processed chunks",
+            "dependencies": [
+              "8.3"
+            ],
+            "details": "Implement metadata extraction for document title from PDF properties or content, identify medical conditions/diseases using pattern matching or keyword detection, track page numbers for each chunk, capture source URL, processing timestamp, and job ID for traceability.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Publish chunks to NATS embeddings topic",
+            "description": "Integrate NATS publishing to send processed document chunks to embeddings.create topic",
+            "dependencies": [
+              "8.4"
+            ],
+            "details": "Set up NATS publisher to send document chunks with metadata to embeddings.create topic, implement proper message serialization, add TTL configuration, handle publishing failures with retry logic, and ensure message ordering for document chunks.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement Embedding Handler",
+        "description": "Create Embedding Handler for vector generation using GoogleGenerativeAI embeddings",
+        "details": "Create handlers/embeddings.py that consumes from embeddings.create topic, uses GoogleGenerativeAIEmbeddings with text-embedding-004 model, generates 768-dimensional vectors, and stores embeddings in Milvus collection with batch insertion for performance.",
+        "testStrategy": "Unit tests for embedding generation, batch processing, Milvus storage, and Gemini API integration",
+        "status": "pending",
+        "dependencies": [
+          7,
+          2
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up NATS consumer for embedding requests",
+            "description": "Implement NATS JetStream consumer to receive embedding generation requests from embeddings.create topic",
+            "dependencies": [],
+            "details": "Create NATS consumer configuration, message handling structure, and connection management for the embeddings.create topic. Include proper error handling, message acknowledgment, and graceful shutdown procedures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Integrate Google Gemini API for embeddings",
+            "description": "Set up GoogleGenerativeAIEmbeddings client with text-embedding-004 model for vector generation",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "Configure GoogleGenerativeAIEmbeddings with API key authentication, text-embedding-004 model selection, and proper error handling for API failures. Implement retry logic and rate limiting for robust production use.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement vector generation and processing",
+            "description": "Create embedding generation logic with batch processing and 768-dimensional vector validation",
+            "dependencies": [
+              "9.2"
+            ],
+            "details": "Process text chunks in batches, generate 768-dimensional embeddings using Gemini API, validate vector dimensions, and handle chunking for large document processing. Include progress tracking and error recovery.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Milvus batch insertion with error handling",
+            "description": "Store generated embeddings in Milvus collection using optimized batch insertion with comprehensive error handling",
+            "dependencies": [
+              "9.3"
+            ],
+            "details": "Implement batch insertion to Milvus medical_documents collection, include metadata (chunk_id, text_content, document_title, source_url, page_number, diseases), optimize batch sizes for performance, and handle insertion failures with retry mechanisms.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement Answer Handler",
+        "description": "Create Answer Handler for RAG pipeline and Q&A generation using ChatGoogleGenerativeAI",
+        "details": "Create handlers/answers.py that consumes from questions topic, performs vector similarity search in Milvus, constructs RAG context, uses ChatGoogleGenerativeAI with gemini-pro model for answer generation, and publishes answers to session-specific answers.{session_id} topics.",
+        "testStrategy": "Unit tests for RAG pipeline, vector search, answer generation, and session-based routing",
+        "status": "pending",
+        "dependencies": [
+          7,
+          2
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up NATS consumer for questions topic",
+            "description": "Implement NATS JetStream consumer to receive questions from the questions topic with proper error handling and message acknowledgment",
+            "dependencies": [],
+            "details": "Create NATS consumer configuration, subscribe to questions topic, implement message deserialization, add error handling for connection issues, and ensure proper message acknowledgment to prevent message loss",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement vector similarity search in Milvus",
+            "description": "Create vector search functionality to find relevant document chunks using cosine similarity search in Milvus collection",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Connect to Milvus collection, convert question to embedding vector, perform similarity search with top-K results, handle search errors, and return relevant document chunks with metadata",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Build RAG context construction",
+            "description": "Construct contextual prompt by combining retrieved document chunks with the user question for optimal answer generation",
+            "dependencies": [
+              "10.2"
+            ],
+            "details": "Format retrieved chunks into coherent context, create structured prompt template, include relevant metadata (document titles, sources), implement context length management, and prepare input for AI model",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Integrate ChatGoogleGenerativeAI with gemini-pro",
+            "description": "Set up Google Gemini integration using ChatGoogleGenerativeAI for answer generation with proper configuration and error handling",
+            "dependencies": [
+              "10.3"
+            ],
+            "details": "Initialize ChatGoogleGenerativeAI with gemini-pro model, configure API credentials, set generation parameters (temperature, max tokens), implement retry logic for API failures, and handle rate limiting",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement answer generation pipeline",
+            "description": "Create the complete answer generation workflow that combines RAG context with Gemini chat model to produce coherent responses",
+            "dependencies": [
+              "10.4"
+            ],
+            "details": "Process RAG context through Gemini model, implement streaming response handling, add response validation, include source attribution in answers, and handle generation errors gracefully",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Publish answers to session-specific topics",
+            "description": "Implement session-based answer publishing to answers.{session_id} topics with proper routing and delivery confirmation",
+            "dependencies": [
+              "10.5"
+            ],
+            "details": "Extract session_id from question metadata, construct session-specific topic name, publish generated answers with proper serialization, implement delivery confirmation, and handle publishing failures",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Set up FastAPI service structure",
+        "description": "Create FastAPI service Poetry project with main application and router architecture",
+        "details": "Create services/api/ directory with pyproject.toml, main.py FastAPI application, routers/ directory with __init__.py, and Dockerfile. Configure Poetry dependencies for FastAPI, WebSockets, NATS, and shared modules. Set up CORS, middleware, and basic error handling.",
+        "testStrategy": "Integration tests for FastAPI startup, router registration, and middleware configuration",
+        "status": "pending",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Poetry project structure for API service",
+            "description": "Set up services/api/ directory with Poetry configuration and project dependencies",
+            "dependencies": [],
+            "details": "Create services/api/ directory with pyproject.toml file. Configure Poetry dependencies for FastAPI, uvicorn, websockets, nats-py, pydantic, and python-multipart. Set up project metadata, version, and Python version requirements.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Create main FastAPI application setup",
+            "description": "Implement main.py with FastAPI application instance and basic configuration",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "Create main.py with FastAPI app instance, basic metadata (title, description, version), and application startup/shutdown event handlers. Configure basic logging and environment variable loading.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Set up router architecture and directory structure",
+            "description": "Create routers directory with proper module structure for API endpoints",
+            "dependencies": [
+              "11.2"
+            ],
+            "details": "Create routers/ directory with __init__.py file. Set up router registration system in main.py to automatically include all routers. Create placeholder router files for sessions, questions, documents, and health endpoints.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Configure CORS, middleware, and error handling",
+            "description": "Implement middleware stack with CORS, error handling, and request processing",
+            "dependencies": [
+              "11.3"
+            ],
+            "details": "Configure CORS middleware for cross-origin requests. Implement global exception handlers for API errors, validation errors, and internal server errors. Add request/response logging middleware and health check endpoint.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create Dockerfile for API service containerization",
+            "description": "Set up Docker containerization for FastAPI service deployment",
+            "dependencies": [
+              "11.4"
+            ],
+            "details": "Create Dockerfile with Python 3.11 base image, Poetry installation, dependency copying, and uvicorn server configuration. Configure proper port exposure (8000), health checks, and optimized layer caching for faster builds.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Create session management endpoints",
+        "description": "Implement session creation and management endpoints with NATS KV integration",
+        "details": "Create routers/sessions.py with POST /create-session endpoint for creating sessions with nickname, NATS KV storage with TTL, session validation middleware, and session status endpoints. Include proper error handling and response models.",
+        "testStrategy": "Unit tests for session creation, KV storage, TTL behavior, and validation logic",
+        "status": "pending",
+        "dependencies": [
+          11
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement session creation endpoint",
+            "description": "Create POST /create-session endpoint with nickname validation and session ID generation",
+            "dependencies": [],
+            "details": "Implement the POST /create-session endpoint in routers/sessions.py that accepts a nickname parameter, validates input, generates a unique session ID, and returns session information. Include proper request/response models using Pydantic and error handling for invalid inputs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Integrate NATS KV storage with TTL",
+            "description": "Implement NATS KV integration for session storage with automatic TTL expiration",
+            "dependencies": [
+              "12.1"
+            ],
+            "details": "Set up NATS KV bucket for session storage with configurable TTL (default 1 hour). Implement session storage operations including create, retrieve, and automatic cleanup. Ensure proper error handling for NATS connection issues and KV operations.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create session validation middleware",
+            "description": "Implement middleware for validating session IDs across API endpoints",
+            "dependencies": [
+              "12.2"
+            ],
+            "details": "Create session validation middleware that checks session ID existence in NATS KV, validates session TTL, and provides session context to endpoints. Include proper error responses for invalid or expired sessions and integration with FastAPI dependency injection system.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement session status and management endpoints",
+            "description": "Create endpoints for session status retrieval and session lifecycle management",
+            "dependencies": [
+              "12.3"
+            ],
+            "details": "Implement GET /sessions/{session_id}/status endpoint for session information, GET /sessions/{session_id}/health for session validation, and DELETE /sessions/{session_id} for manual session cleanup. Include proper response models and error handling for non-existent sessions.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Create document management endpoints",
+        "description": "Implement document URL submission endpoints for PDF processing",
+        "details": "Create routers/documents.py with POST /document-download endpoint for submitting PDF URLs, URL validation, job ID generation, publishing to documents.download NATS topic, rate limiting, and response with job tracking information.",
+        "testStrategy": "Unit tests for URL validation, job creation, NATS publishing, and rate limiting",
+        "status": "pending",
+        "dependencies": [
+          11
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement URL validation logic",
+            "description": "Create comprehensive URL validation for PDF document URLs with security checks",
+            "dependencies": [],
+            "details": "Implement URL validation functions including scheme validation (http/https), domain validation, PDF content-type checking, URL sanitization, malicious URL detection, and size limit validation. Create validation models and error responses for invalid URLs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement job ID generation system",
+            "description": "Create unique job ID generation and tracking system for document processing",
+            "dependencies": [
+              "13.1"
+            ],
+            "details": "Implement UUID-based job ID generation, job metadata creation with timestamps and status tracking, job validation functions, and response models for job tracking information. Include proper error handling for job creation failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement NATS publishing functionality",
+            "description": "Create NATS message publishing for document processing requests",
+            "dependencies": [
+              "13.2"
+            ],
+            "details": "Implement NATS JetStream publishing to documents.download topic, message serialization with job metadata and URL information, error handling for publishing failures, acknowledgment handling, and retry logic for failed publications.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement rate limiting and endpoint creation",
+            "description": "Create the POST /document-download endpoint with rate limiting and complete request handling",
+            "dependencies": [
+              "13.3"
+            ],
+            "details": "Create the FastAPI endpoint in routers/documents.py with rate limiting middleware, request/response models, integration of URL validation, job creation, and NATS publishing components. Include comprehensive error handling, status codes, and API documentation.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Create question endpoints and WebSocket streaming",
+        "description": "Implement question submission endpoints and WebSocket answer streaming",
+        "details": "Create routers/questions.py with POST /question endpoint for submitting questions with session validation, publishing to questions NATS topic, and WebSocket /answer endpoint for real-time answer delivery from session-specific answers.{session_id} topics. Include connection management and heartbeat.",
+        "testStrategy": "Unit tests for question submission, WebSocket connections, session-based routing, and message delivery",
+        "status": "pending",
+        "dependencies": [
+          11,
+          6
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create question submission endpoint",
+            "description": "Implement POST /question endpoint with request/response models and validation",
+            "dependencies": [],
+            "details": "Create POST /question endpoint in routers/questions.py with Pydantic models for question request (session_id, question_text) and response (job_id, status), input validation, and proper HTTP status codes.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement session validation middleware",
+            "description": "Add session validation logic for question endpoints",
+            "dependencies": [
+              "14.1"
+            ],
+            "details": "Create session validation function to verify session_id exists in NATS KV store, handle expired sessions, and return appropriate error responses for invalid sessions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Integrate NATS publishing for questions",
+            "description": "Implement NATS message publishing to questions topic",
+            "dependencies": [
+              "14.2"
+            ],
+            "details": "Add NATS client integration to publish question messages to 'questions' topic with proper message structure (session_id, question_text, job_id, timestamp) and error handling for publishing failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create WebSocket answer endpoint",
+            "description": "Implement WebSocket /answer endpoint for real-time answer streaming",
+            "dependencies": [],
+            "details": "Create WebSocket endpoint at /answer with session_id parameter, connection establishment, and integration with WebSocket connection manager for session-based routing.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement real-time message routing",
+            "description": "Set up NATS subscription for session-specific answer delivery",
+            "dependencies": [
+              "14.4"
+            ],
+            "details": "Implement NATS subscription to answers.{session_id} topics, message routing to appropriate WebSocket connections, and streaming of answer chunks to connected clients in real-time.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Add connection management and heartbeat",
+            "description": "Implement WebSocket connection lifecycle and heartbeat functionality",
+            "dependencies": [
+              "14.5"
+            ],
+            "details": "Add WebSocket connection management with heartbeat mechanism, graceful disconnection handling, connection cleanup on session expiration, and error handling for connection failures.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Set up Streamlit UI service structure",
+        "description": "Create Streamlit service Poetry project with main application and component architecture",
+        "details": "Create services/ui/ directory with pyproject.toml, main.py Streamlit application, components/ directory with __init__.py, and Dockerfile. Configure Poetry dependencies for Streamlit, NATS client, requests for API calls, and plotly for dashboard visualizations.",
+        "testStrategy": "Integration tests for Streamlit startup, component loading, and external service connections",
+        "status": "pending",
+        "dependencies": [
+          1,
+          3,
+          4,
+          5
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create UI service directory structure and Poetry project setup",
+            "description": "Initialize services/ui/ directory with Poetry configuration and Python package structure",
+            "dependencies": [],
+            "details": "Create services/ui/ directory, initialize Poetry project with pyproject.toml, create __init__.py files for Python package structure, and set up basic project metadata and build configuration",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Configure Poetry dependencies for Streamlit UI service",
+            "description": "Add and configure all required Python dependencies for the Streamlit application",
+            "dependencies": [
+              "15.1"
+            ],
+            "details": "Configure Poetry dependencies including Streamlit for UI framework, NATS client for messaging, requests for API communication, plotly for dashboard visualizations, and any other required packages for UI functionality",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create main Streamlit application and component architecture",
+            "description": "Implement main.py Streamlit application entry point and set up components directory structure",
+            "dependencies": [
+              "15.2"
+            ],
+            "details": "Create main.py with basic Streamlit application setup, create components/ directory with __init__.py, design component architecture for chat interface, document upload, and dashboard visualization components",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create Dockerfile for UI service containerization",
+            "description": "Implement Docker configuration for containerized deployment of the Streamlit UI service",
+            "dependencies": [
+              "15.3"
+            ],
+            "details": "Create Dockerfile with Python base image, Poetry installation, dependency management, Streamlit port exposure (8501), and proper container startup configuration for the UI service",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "title": "Implement chat interface component",
+        "description": "Create interactive chat interface with session management and real-time WebSocket integration",
+        "details": "Create components/chat.py with Streamlit chat interface, session creation/management, WebSocket connection for real-time answers, message history display, typing indicators, and error handling for connection issues.",
+        "testStrategy": "UI tests for chat functionality, session handling, WebSocket integration, and error scenarios",
+        "status": "pending",
+        "dependencies": [
+          15
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Streamlit chat UI layout",
+            "description": "Build the basic chat interface layout with message display area, input field, and send button",
+            "dependencies": [],
+            "details": "Create components/chat.py with Streamlit chat_message containers for displaying conversation history, st.text_input for user questions, and st.button for sending messages. Include proper styling and layout structure.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement session management integration",
+            "description": "Add session creation, management, and persistence using Streamlit session state",
+            "dependencies": [
+              "16.1"
+            ],
+            "details": "Integrate with NATS KV session storage, handle session creation/retrieval, manage session state in Streamlit st.session_state, and implement session expiration handling with proper cleanup.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement WebSocket client for real-time answers",
+            "description": "Create WebSocket connection to receive real-time answers from the API service",
+            "dependencies": [
+              "16.2"
+            ],
+            "details": "Implement WebSocket client connection to API service, subscribe to session-specific answer topics (answers.{session_id}), handle real-time message reception, and integrate with Streamlit's real-time update mechanisms.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add message history and typing indicators",
+            "description": "Implement conversation history display and visual feedback for ongoing processing",
+            "dependencies": [
+              "16.3"
+            ],
+            "details": "Create message history storage and display using Streamlit chat components, implement typing indicators or loading states while waiting for answers, and ensure proper message ordering and timestamps.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement error handling and connection management",
+            "description": "Add comprehensive error handling for WebSocket disconnections and API failures",
+            "dependencies": [
+              "16.4"
+            ],
+            "details": "Implement error handling for WebSocket connection failures, API service unavailability, session expiration, and network issues. Include user-friendly error messages, retry mechanisms, and graceful degradation when real-time features are unavailable.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 17,
+        "title": "Implement document upload component",
+        "description": "Create document upload component for PDF URL submission with validation and progress tracking",
+        "details": "Create components/document_upload.py with Streamlit form for PDF URL submission, URL validation, API integration with document-download endpoint, job ID tracking, upload progress indicators, and error handling for invalid URLs or failed submissions.",
+        "testStrategy": "UI tests for form validation, API integration, progress tracking, and error handling",
+        "status": "pending",
+        "dependencies": [
+          15
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Streamlit form structure and basic UI",
+            "description": "Build the basic Streamlit form with URL input field, submit button, and initial layout for the document upload component",
+            "dependencies": [],
+            "details": "Create components/document_upload.py with Streamlit form containing text input for PDF URL, submit button, and basic styling. Set up the component structure with proper Streamlit containers and layout.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement URL validation logic",
+            "description": "Add comprehensive URL validation for PDF links including format checking, accessibility testing, and user feedback",
+            "dependencies": [
+              "17.1"
+            ],
+            "details": "Implement URL validation functions to check valid URL format, verify the URL is accessible, validate that it points to a PDF file, and provide clear error messages for invalid inputs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Integrate API communication with document-download endpoint",
+            "description": "Connect the form to the backend API for document submission and job ID retrieval",
+            "dependencies": [
+              "17.2"
+            ],
+            "details": "Implement API integration to submit validated PDF URLs to the document-download endpoint, retrieve job IDs for tracking, handle API responses, and manage authentication/headers as needed.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add progress tracking and error handling",
+            "description": "Implement upload progress indicators, job status monitoring, and comprehensive error handling for failed submissions",
+            "dependencies": [
+              "17.3"
+            ],
+            "details": "Add progress bars/spinners for upload status, implement job ID tracking to monitor processing progress, display success/error messages, handle network failures, invalid responses, and provide user-friendly error recovery options.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 18,
+        "title": "Implement real-time dashboard component",
+        "description": "Create real-time dashboard for NATS topic monitoring with live status indicators",
+        "details": "Create components/dashboard.py with NATS topic monitoring, real-time message flow visualization, topic status indicators (grey for idle, green for active), plotly charts for message rates, and WebSocket connection for live updates of system metrics.",
+        "testStrategy": "UI tests for dashboard visualization, real-time updates, NATS integration, and chart rendering",
+        "status": "pending",
+        "dependencies": [
+          15
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up NATS monitoring connection",
+            "description": "Establish NATS client connection for monitoring JetStream topics and message flows",
+            "dependencies": [],
+            "details": "Create NATS client connection using asyncio-nats, implement JetStream monitoring functions to track topic activity, message rates, and consumer status. Include connection health checks and reconnection logic.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement real-time data fetching",
+            "description": "Create data fetching mechanisms for live NATS topic metrics and system status",
+            "dependencies": [
+              "18.1"
+            ],
+            "details": "Implement async functions to fetch topic statistics, message counts, consumer lag, and system metrics. Create data models for metric storage and implement periodic data collection with configurable intervals.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create topic status indicators",
+            "description": "Build visual status indicators showing topic activity with color-coded states",
+            "dependencies": [
+              "18.2"
+            ],
+            "details": "Implement status indicator components with grey for idle topics, green for active topics, and red for error states. Create status calculation logic based on message activity thresholds and last message timestamps.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Build Plotly visualization charts",
+            "description": "Create interactive Plotly charts for message rates, topic activity, and system metrics",
+            "dependencies": [
+              "18.2"
+            ],
+            "details": "Implement Plotly charts for message rate over time, topic throughput comparison, consumer lag visualization, and system performance metrics. Include interactive features like zoom, hover tooltips, and time range selection.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement WebSocket live updates",
+            "description": "Create WebSocket connection for real-time dashboard updates and live data streaming",
+            "dependencies": [
+              "18.3",
+              "18.4"
+            ],
+            "details": "Implement WebSocket client for receiving live metric updates, create update handlers for chart refreshing, status indicator updates, and implement automatic reconnection with exponential backoff. Include error handling for connection failures.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 19,
+        "title": "Create Milvus collection schema and index configuration",
+        "description": "Set up Milvus collection schema for medical documents with proper indexing",
+        "details": "Create initialization script for medical_documents collection with schema (chunk_id, embedding, text_content, document_title, source_url, page_number, diseases, processed_at, job_id), COSINE similarity index configuration (IVF_FLAT with nlist=128), and collection optimization settings.",
+        "testStrategy": "Integration tests for schema creation, index performance, and data insertion validation",
+        "status": "pending",
+        "dependencies": [
+          2
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design collection schema and field definitions",
+            "description": "Define the complete Milvus collection schema with all required fields, data types, and field properties",
+            "dependencies": [],
+            "details": "Create schema definition with chunk_id (primary key, VarChar), embedding (FloatVector, dim=768), text_content (VarChar), document_title (VarChar), source_url (VarChar), page_number (Int64), diseases (VarChar), processed_at (VarChar), and job_id (VarChar). Include field constraints, nullable settings, and auto-generated ID configuration.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement collection creation script",
+            "description": "Create the initialization script to create the medical_documents collection with the defined schema",
+            "dependencies": [
+              "19.1"
+            ],
+            "details": "Develop create_collection.py script with Milvus connection setup, collection creation logic using the schema from 19.1, error handling for existing collections, and collection existence verification. Include proper logging and connection cleanup.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Configure vector index with IVF_FLAT and COSINE similarity",
+            "description": "Set up the vector index configuration for optimal similarity search performance",
+            "dependencies": [
+              "19.2"
+            ],
+            "details": "Implement index creation with IVF_FLAT index type, COSINE metric type, nlist=128 parameter for optimal performance on medical document embeddings. Include index building process, performance validation, and index status monitoring.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Apply collection optimization and performance settings",
+            "description": "Configure collection-level optimization settings for production performance",
+            "dependencies": [
+              "19.3"
+            ],
+            "details": "Set up collection optimization parameters including segment configuration, compaction settings, memory management, and query performance tuning. Configure collection loading strategy, resource allocation limits, and monitoring for sub-100ms query performance requirements.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "title": "Set up NATS topics and JetStream configuration",
+        "description": "Configure NATS JetStream topics and KV stores for ephemeral messaging architecture",
+        "details": "Create NATS configuration script to set up JetStream topics (questions, documents.download, embeddings.create, answers.*, system.metrics), KV store for sessions with TTL, consumer configurations, and retention policies for ephemeral processing.",
+        "testStrategy": "Integration tests for topic creation, KV store operations, TTL behavior, and consumer setup",
+        "status": "pending",
+        "dependencies": [
+          3
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create JetStream topic configuration",
+            "description": "Set up JetStream topics for questions, documents.download, embeddings.create, answers.*, and system.metrics",
+            "dependencies": [],
+            "details": "Create NATS configuration script to establish JetStream topics with appropriate subject patterns. Configure topics for questions processing, document download requests, embedding creation tasks, session-specific answer delivery (answers.*), and system metrics collection. Include proper stream configuration with retention policies.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Configure KV store for session management",
+            "description": "Set up NATS KV store for session data with TTL configuration",
+            "dependencies": [
+              "20.1"
+            ],
+            "details": "Create KV bucket for session management with automatic TTL expiration. Configure bucket policies, access controls, and session data schema. Implement TTL-based cleanup for ephemeral session storage ensuring data expires according to architecture requirements.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Set up consumer configurations",
+            "description": "Configure JetStream consumers for each topic with appropriate delivery policies",
+            "dependencies": [
+              "20.1"
+            ],
+            "details": "Create consumer configurations for each JetStream topic including delivery policies, acknowledgment settings, retry policies, and consumer groups. Configure durable consumers for reliable message processing and appropriate consumer naming conventions for service identification.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement retention and TTL policies",
+            "description": "Configure stream retention policies and TTL settings for ephemeral messaging",
+            "dependencies": [
+              "20.2",
+              "20.3"
+            ],
+            "details": "Set up retention policies for all streams to ensure ephemeral behavior with 1-hour default TTL. Configure memory-based storage, message limits, and automatic purging policies. Implement monitoring for retention policy effectiveness and resource usage optimization.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 21,
+        "title": "Create Docker services configuration",
+        "description": "Create docker-compose.services.yml for application services deployment",
+        "details": "Create docker-compose.services.yml with service definitions for worker, api, and ui services, environment variable configuration, dependency management, health checks, resource limits, and integration with existing infrastructure services.",
+        "testStrategy": "Integration tests for Docker deployment, service health checks, and container orchestration",
+        "status": "pending",
+        "dependencies": [
+          7,
+          11,
+          15
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define service configurations for worker, api, and ui",
+            "description": "Create service definitions in docker-compose.services.yml with proper build contexts, ports, volumes, and networking configuration",
+            "dependencies": [],
+            "details": "Define three services (worker, api, ui) with appropriate build contexts pointing to services/ subdirectories, expose necessary ports (8000 for API, 8501 for UI), configure shared volumes for logs and temporary files, and set up inter-service networking. Include resource limits and restart policies.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Configure environment variables and secrets management",
+            "description": "Set up environment variable configuration for all services with proper secret handling and infrastructure integration",
+            "dependencies": [
+              "21.1"
+            ],
+            "details": "Configure environment variables for GOOGLE_API_KEY, NATS_URL, MILVUS_HOST/PORT, set up .env file integration, configure service-specific environment sections, and ensure proper propagation of infrastructure connection settings from base docker-compose.yml to application services.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement health checks and dependency management",
+            "description": "Add health check configurations and service dependency orchestration to ensure proper startup order",
+            "dependencies": [
+              "21.1",
+              "21.2"
+            ],
+            "details": "Configure health checks for each service (HTTP endpoints for API/UI, process checks for worker), set up depends_on relationships to ensure infrastructure services (NATS, Milvus) start before application services, implement proper wait conditions and retry logic, and add service discovery configuration.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 22,
+        "title": "Implement comprehensive error handling and logging",
+        "description": "Add structured logging and error handling across all services",
+        "details": "Implement structured logging with proper log levels, error handling middleware for FastAPI, exception handling in worker processes, graceful degradation strategies, and centralized error reporting. Include proper cleanup for failed operations.",
+        "testStrategy": "Unit tests for error scenarios, logging output validation, and graceful failure handling",
+        "status": "pending",
+        "dependencies": [
+          7,
+          11,
+          15
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up structured logging framework",
+            "description": "Configure centralized logging with proper formatters, handlers, and log levels across all services",
+            "dependencies": [],
+            "details": "Create shared/logging.py with structured JSON logging configuration, log formatters with timestamps and service identification, file and console handlers, configurable log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL), and integration with existing configuration management from task 5.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement FastAPI error handling middleware",
+            "description": "Create comprehensive error handling middleware for the API service with proper HTTP status codes",
+            "dependencies": [
+              "22.1"
+            ],
+            "details": "Add error middleware to services/api/main.py that catches all exceptions, logs errors with structured format, returns appropriate HTTP status codes and error responses, handles validation errors, authentication errors, and internal server errors with proper JSON responses.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Add exception handling to worker processes",
+            "description": "Implement robust exception handling in all worker handlers with proper cleanup and retry logic",
+            "dependencies": [
+              "22.1"
+            ],
+            "details": "Update handlers in services/worker/ (documents.py, embeddings.py, answers.py) to include try-catch blocks, structured error logging, graceful handling of API failures, NATS connection errors, Milvus errors, and proper cleanup of partial operations with exponential backoff for retries.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement graceful degradation strategies",
+            "description": "Add fallback mechanisms and graceful degradation when services are unavailable",
+            "dependencies": [
+              "22.2",
+              "22.3"
+            ],
+            "details": "Implement circuit breaker patterns for external API calls, fallback responses when Milvus is unavailable, graceful handling of NATS disconnections, timeout configurations for all external dependencies, and user-friendly error messages in the UI when services are degraded.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create centralized error reporting and monitoring",
+            "description": "Set up centralized error collection and basic monitoring for system health",
+            "dependencies": [
+              "22.4"
+            ],
+            "details": "Create shared/monitoring.py with error aggregation, health check endpoints for all services, error rate tracking, system metrics collection (memory, CPU, connection counts), and integration with the Streamlit dashboard to display system health and error statistics in real-time.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 23,
+        "title": "Create unit tests for shared utilities",
+        "description": "Implement comprehensive unit test suite for shared utilities and core functions",
+        "details": "Create unit tests for database.py (Milvus operations), messaging.py (NATS operations), models.py (Pydantic validation), config.py (environment loading), and websocket_manager.py (connection handling). Use pytest with proper mocking for external dependencies.",
+        "testStrategy": "Test coverage analysis and CI/CD integration for automated testing",
+        "status": "pending",
+        "dependencies": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create database utilities unit tests",
+            "description": "Implement comprehensive unit tests for database.py covering Milvus operations",
+            "dependencies": [],
+            "details": "Create test_database.py with tests for Milvus connection, collection operations, vector insertions/queries, schema validation, and error handling. Mock pymilvus dependencies and test connection failures, invalid schemas, and query edge cases.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Create messaging utilities unit tests",
+            "description": "Implement comprehensive unit tests for messaging.py covering NATS operations",
+            "dependencies": [],
+            "details": "Create test_messaging.py with tests for NATS connection, JetStream operations, topic publishing/subscribing, KV store operations, and TTL behavior. Mock nats-py dependencies and test connection failures, message delivery, and stream configurations.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create model validation unit tests",
+            "description": "Implement comprehensive unit tests for models.py covering Pydantic validation",
+            "dependencies": [],
+            "details": "Create test_models.py with tests for all Pydantic models including SessionCreate, QuestionRequest, DocumentRequest, AnswerResponse, and validation logic. Test field validation, serialization/deserialization, and edge cases for invalid data.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create configuration management unit tests",
+            "description": "Implement comprehensive unit tests for config.py covering environment loading",
+            "dependencies": [],
+            "details": "Create test_config.py with tests for environment variable loading, default values, configuration validation, and error handling for missing required variables. Mock os.environ and test various configuration scenarios and validation failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create WebSocket manager unit tests",
+            "description": "Implement comprehensive unit tests for websocket_manager.py covering connection handling",
+            "dependencies": [
+              "23.2"
+            ],
+            "details": "Create test_websocket_manager.py with tests for WebSocket connection lifecycle, session-based routing, message broadcasting, connection pooling, and error handling. Mock WebSocket connections and NATS integration, test connection failures and message delivery scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 24,
+        "title": "Create integration tests for end-to-end workflows",
+        "description": "Implement integration tests for complete document processing and Q&A workflows",
+        "details": "Create integration tests for full document indexing workflow (URL submission to vector storage), complete Q&A workflow (question to real-time answer), WebSocket integration testing, and multi-service interaction validation. Include performance benchmarks and load testing scenarios.",
+        "testStrategy": "End-to-end test automation with Docker Compose test environment",
+        "status": "pending",
+        "dependencies": [
+          8,
+          9,
+          10,
+          12,
+          13,
+          14,
+          19,
+          20
+        ],
+        "priority": "medium",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up integration test environment",
+            "description": "Configure Docker Compose test environment with all required services for integration testing",
+            "dependencies": [],
+            "details": "Create docker-compose.test.yml with test-specific configurations, environment variables for testing, test data volumes, and service isolation. Include test database initialization, NATS test streams setup, and Milvus test collections.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement document processing workflow tests",
+            "description": "Create integration tests for complete document indexing pipeline from URL to vector storage",
+            "dependencies": [
+              "24.1"
+            ],
+            "details": "Test full workflow: PDF URL submission → download → chunking → embedding generation → Milvus storage. Validate each step with assertions on NATS messages, vector data integrity, and processing completion.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Q&A pipeline integration tests",
+            "description": "Create integration tests for complete question-answer workflow with real-time delivery",
+            "dependencies": [
+              "24.1",
+              "24.2"
+            ],
+            "details": "Test full Q&A pipeline: question submission → vector similarity search → RAG generation → real-time answer delivery. Validate context retrieval accuracy, answer quality, and response timing.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement WebSocket integration tests",
+            "description": "Create comprehensive tests for WebSocket real-time communication and session-based routing",
+            "dependencies": [
+              "24.1"
+            ],
+            "details": "Test WebSocket connection lifecycle, session-based message routing to answers.{session_id} topics, heartbeat functionality, connection pooling, and graceful disconnection handling with multiple concurrent sessions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create performance benchmarking tests",
+            "description": "Implement performance tests for vector search latency and system throughput",
+            "dependencies": [
+              "24.1",
+              "24.2",
+              "24.3"
+            ],
+            "details": "Create benchmarks for Milvus similarity search (<100ms target), concurrent document processing throughput, Q&A response times, and WebSocket message delivery latency. Include load testing with multiple simultaneous users.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement multi-service coordination tests",
+            "description": "Create tests validating proper interaction between worker, API, and UI services",
+            "dependencies": [
+              "24.1",
+              "24.2",
+              "24.3",
+              "24.4"
+            ],
+            "details": "Test service-to-service communication, NATS message flow coordination, error propagation between services, service restart resilience, and end-to-end system health under various failure scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 25,
+        "title": "Set up health check endpoints for all services",
+        "description": "Implement health check endpoints for monitoring service status and dependencies",
+        "details": "Add /health endpoints to Worker, API, and UI services with dependency status checks (NATS, Milvus, Gemini API), service readiness indicators, and structured health response format. Include Docker health check integration and monitoring capabilities.",
+        "testStrategy": "Health check endpoint testing and dependency monitoring validation",
+        "status": "pending",
+        "dependencies": [
+          7,
+          11,
+          15
+        ],
+        "priority": "low",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement health check endpoints for all services",
+            "description": "Add /health endpoints to Worker, API, and UI services with basic service status",
+            "dependencies": [],
+            "details": "Create /health endpoints in each service (Worker, API, UI) that return basic service status information including uptime, version, and service name. Implement structured JSON response format with consistent schema across all services.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Add dependency status checking",
+            "description": "Implement dependency health checks for NATS, Milvus, and Gemini API",
+            "dependencies": [
+              "25.1"
+            ],
+            "details": "Extend health endpoints to check external dependency status including NATS connection, Milvus database connectivity, and Gemini API availability. Include response time metrics and connection pool status for each dependency.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Configure Docker health check integration",
+            "description": "Add Docker HEALTHCHECK instructions and monitoring capabilities",
+            "dependencies": [
+              "25.2"
+            ],
+            "details": "Configure Docker HEALTHCHECK instructions in Dockerfiles to use the /health endpoints, set appropriate timeout and retry values, and ensure proper container orchestration. Add health check monitoring capabilities for production deployment.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 26,
+        "title": "Configure environment variables and documentation",
+        "description": "Set up environment configuration files and update documentation",
+        "details": "Create .env.example file with all required environment variables, update CLAUDE.md with configuration details, create deployment documentation, and add setup instructions for development and production environments. Include security best practices for API keys.",
+        "testStrategy": "Documentation review and environment configuration validation",
+        "status": "pending",
+        "dependencies": [
+          5,
+          21
+        ],
+        "priority": "low",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create .env.example template file",
+            "description": "Create comprehensive .env.example file with all required environment variables for the RAG system",
+            "dependencies": [],
+            "details": "Create .env.example in project root containing: GOOGLE_API_KEY, NATS_URL, MILVUS_HOST, MILVUS_PORT, SESSION_TTL, MESSAGE_TTL, MAX_DOCUMENT_WORKERS, MAX_EMBEDDING_WORKERS, MAX_QUESTION_WORKERS, EMBEDDING_MODEL, CHAT_MODEL, VECTOR_DIMENSION. Include comments explaining each variable's purpose and example values.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Update CLAUDE.md with configuration details",
+            "description": "Update project documentation with comprehensive configuration information",
+            "dependencies": [
+              "26.1"
+            ],
+            "details": "Update CLAUDE.md Configuration section with detailed explanations of all environment variables, their default values, required vs optional settings, and security best practices for API key management. Include troubleshooting section for common configuration issues.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create deployment and setup documentation",
+            "description": "Create comprehensive setup instructions for development and production environments",
+            "dependencies": [
+              "26.2"
+            ],
+            "details": "Create deployment documentation covering: development setup steps, production deployment guide, Docker environment configuration, API key security practices, service startup order, health check procedures, and troubleshooting common setup issues. Include both quick start and detailed setup sections.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 27,
+        "title": "Test and validate complete RAG pipeline integration",
+        "description": "Perform end-to-end testing and validation of the complete RAG system",
+        "details": "Conduct comprehensive system testing including: document ingestion from Brazilian clinical protocols, vector search performance validation, Q&A accuracy testing, real-time WebSocket functionality, dashboard monitoring, and load testing. Validate all TTL-based cleanup mechanisms and ephemeral data handling.",
+        "testStrategy": "Full system validation with real clinical protocol documents and comprehensive performance benchmarks",
+        "status": "pending",
+        "dependencies": [
+          16,
+          17,
+          18,
+          22,
+          24,
+          25
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up comprehensive testing environment and infrastructure",
+            "description": "Configure testing infrastructure with all services running and monitoring tools enabled",
+            "dependencies": [],
+            "details": "Set up complete testing environment with Docker Compose, ensure all services (Milvus, NATS, MinIO, etcd) are running, configure monitoring dashboards, and establish baseline performance metrics. Prepare test data sets of Brazilian clinical protocols for validation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Test document ingestion pipeline with real clinical protocols",
+            "description": "Validate complete document processing workflow from URL to vector storage",
+            "dependencies": [
+              "27.1"
+            ],
+            "details": "Test document download, PDF parsing, text chunking, and embedding generation using real Brazilian clinical protocol documents. Verify proper metadata extraction, chunk overlap handling, and successful vector insertion into Milvus collections.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Validate vector search performance and accuracy",
+            "description": "Test Milvus vector search operations for speed and relevance",
+            "dependencies": [
+              "27.2"
+            ],
+            "details": "Perform vector similarity search tests with various query types and complexity levels. Measure search latency (target <100ms), validate top-K retrieval accuracy, test different similarity thresholds, and verify proper metadata filtering functionality.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Test Q&A accuracy and RAG pipeline effectiveness",
+            "description": "Validate end-to-end question-answering accuracy using medical queries",
+            "dependencies": [
+              "27.3"
+            ],
+            "details": "Test RAG pipeline with diverse medical questions, validate answer quality and relevance, verify proper source attribution, test context window handling, and measure response generation times. Include edge cases and domain-specific terminology validation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Test real-time WebSocket functionality and session management",
+            "description": "Validate WebSocket connections, session routing, and real-time answer delivery",
+            "dependencies": [
+              "27.4"
+            ],
+            "details": "Test WebSocket connection establishment, session-based answer routing to correct topics (answers.{session_id}), real-time message delivery, connection persistence, and proper session timeout handling. Validate multiple concurrent session support.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Perform load testing and concurrency validation",
+            "description": "Test system performance under concurrent load and stress conditions",
+            "dependencies": [
+              "27.5"
+            ],
+            "details": "Execute load tests with multiple concurrent document processing jobs, simultaneous Q&A sessions, and high-volume message throughput. Test worker concurrency limits, NATS message handling under load, and Milvus performance with large datasets. Monitor resource utilization and identify bottlenecks.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Validate TTL-based cleanup and ephemeral data handling",
+            "description": "Test automatic message expiration, session cleanup, and data persistence patterns",
+            "dependencies": [
+              "27.6"
+            ],
+            "details": "Verify TTL-based message expiration in NATS (1-hour default), test session automatic cleanup, validate that only vector embeddings persist in Milvus while processing data expires correctly. Test system recovery after TTL cleanup and ensure no data leakage or accumulation.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "created": "2025-08-09T12:30:00Z",
+      "description": "RAG 101 Medical Document Q&A System Implementation Tasks",
+      "updated": "2025-08-09T15:33:54.458Z"
+    }
+  }
+}

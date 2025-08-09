@@ -1,0 +1,125 @@
+# RAG 101 - Medical Document Q&A System
+
+## Overview
+Complete Retrieval Augmented Generation (RAG) system for medical document Q&A based on Brazilian clinical protocols (PCDT). Uses ephemeral messaging architecture with real-time processing and vector search capabilities.
+
+## Core Architecture
+- **Vector Database**: Milvus for fast similarity search (< 100ms)
+- **Message Streaming**: NATS JetStream for ephemeral processing with TTL-based cleanup  
+- **AI Integration**: Google Gemini for embeddings (text-embedding-004) and text generation (gemini-pro)
+- **Worker Services**: Python background processors for documents, embeddings, and Q&A
+- **API Service**: FastAPI with WebSocket support for real-time answers
+- **UI Service**: Streamlit with live dashboard showing message flows
+
+## System Components
+
+### 1. Infrastructure Services (Already Implemented)
+- Docker Compose setup with Milvus, NATS, etcd, MinIO
+- All infrastructure services configured and working
+
+### 2. Shared Utilities Module
+Common utilities for all services including:
+- Database operations (Milvus connection & vector operations)
+- Messaging operations (NATS client & pub/sub patterns)  
+- Data models (Session, Question, Answer, Document schemas)
+- Configuration management with environment variables
+- WebSocket connection management for real-time updates
+
+### 3. Worker Service
+Background processing service with three specialized handlers:
+- **Document Handler**: Download PDFs, LangChain document loading & text chunking
+- **Embedding Handler**: Generate embeddings using GoogleGenerativeAIEmbeddings  
+- **Answer Handler**: RAG pipeline with ChatGoogleGenerativeAI for Q&A generation
+- Configurable concurrency (2 workers per type by default)
+- Health check endpoint integration
+
+### 4. API Service  
+FastAPI REST API with WebSocket capabilities:
+- **Session Management**: Create/manage ephemeral user sessions in NATS KV
+- **Document Endpoints**: Submit PDF URLs for processing
+- **Question Endpoints**: Submit questions for RAG pipeline
+- **WebSocket Answer Streaming**: Real-time answer delivery via session-specific topics
+- **Health Check**: Service and dependency status monitoring
+
+### 5. UI Service
+Streamlit interface with real-time capabilities:
+- **Chat Interface**: Interactive Q&A with session management
+- **Document Upload**: Submit PDF URLs for indexing
+- **Real-time Dashboard**: Visual monitoring of NATS topic activity with live status indicators
+- **Statistics Display**: System metrics and usage analytics
+
+## Technical Specifications
+
+### Message Flow Patterns
+1. **Document Processing**: URL → Download → Chunking → Embedding → Vector Storage
+2. **Q&A Flow**: Session Creation → Question → RAG Pipeline → Real-time Answer via WebSocket  
+3. **Session-based Routing**: Answers route to `answers.{session_id}` topics
+4. **Ephemeral Processing**: All intermediate data expires in 1 hour
+
+### Vector Database Schema
+Milvus collection `medical_documents` with:
+- chunk_id (primary key), embedding (768-dim vector), text_content, document_title
+- source_url, page_number, diseases, processed_at, job_id
+- COSINE similarity index for fast text retrieval
+
+### NATS Message Topics  
+- `questions`: User questions for processing
+- `answers.{session_id}`: Session-specific answer delivery
+- `documents.download`: PDF processing requests
+- `embeddings.create`: Chunk embedding generation
+- `system.metrics`: Dashboard monitoring data
+- `sessions`: NATS KV store for session management
+
+### AI/ML Integration
+- **Embeddings**: GoogleGenerativeAIEmbeddings with text-embedding-004 model
+- **Text Generation**: ChatGoogleGenerativeAI with gemini-pro model
+- **Document Processing**: RecursiveCharacterTextSplitter (1000 chars, 200 overlap)
+- **RAG Chain**: LangChain integration with Milvus vector store
+
+## Development Requirements
+
+### Environment Configuration
+Required environment variables:
+- GOOGLE_API_KEY (Gemini API access)
+- NATS_URL (message broker connection)  
+- MILVUS_HOST, MILVUS_PORT (vector database connection)
+
+### Poetry Project Structure
+Each service (worker, api, ui) needs:
+- pyproject.toml with dependencies and scripts
+- poetry.lock for reproducible builds
+- Dockerfile for production deployment
+- Main entry point and proper module structure
+
+### Testing Strategy
+- Unit tests for core functions (vector ops, message handling, RAG pipeline)
+- Integration tests for end-to-end workflows  
+- Performance tests for vector search and concurrent processing
+- Mocking for external API dependencies during testing
+
+## Success Criteria
+1. **Functional Requirements**:
+   - Users can submit PDF URLs and get them indexed into vector database
+   - Users can ask questions and receive contextual answers in real-time
+   - Dashboard shows live message processing activity
+   - All data expires automatically via TTL (no manual cleanup needed)
+
+2. **Performance Requirements**:
+   - Vector search < 100ms for top-5 results
+   - Question → Answer in 2-5 seconds including LLM generation
+   - WebSocket delivery < 50ms after answer generation
+   - Concurrent processing of 2-5 documents and 10-20 questions per minute
+
+3. **Technical Requirements**:
+   - Complete Poetry + Docker development workflow
+   - Comprehensive error handling with graceful degradation
+   - Real-time WebSocket integration for live updates
+   - Ephemeral architecture with stateless recovery capabilities
+
+## Implementation Priority
+1. **Foundation**: Shared utilities and configuration management
+2. **Core Processing**: Worker service with all three handlers  
+3. **API Layer**: FastAPI service with WebSocket integration
+4. **User Interface**: Streamlit UI with chat and dashboard
+5. **Integration**: End-to-end testing and deployment automation
+6. **Polish**: Error handling, monitoring, and documentation

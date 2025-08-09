@@ -222,3 +222,7 @@ shared/               # Common utilities across services
 - **TTL-based Cleanup**: System self-cleans - no manual maintenance required
 
 This system demonstrates modern RAG architecture patterns with real-time processing, ephemeral messaging, and efficient vector search.
+
+## Task Master AI Instructions
+**Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
+@./.taskmaster/CLAUDE.md
