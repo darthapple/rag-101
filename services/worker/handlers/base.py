@@ -23,6 +23,7 @@ from nats.js import JetStreamContext
 from nats.aio.msg import Msg
 
 from shared.config import get_config
+from shared.logging import get_structured_logger, StructuredLogger
 from shared.models import serialize_for_nats, deserialize_from_nats, BaseModel
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,8 @@ class BaseHandler(ABC):
         # Semaphore for concurrent processing
         self.processing_semaphore = asyncio.Semaphore(max_workers)
         
-        # Setup logging
-        self.logger = logging.getLogger(f"worker.{handler_name}")
+        # Setup structured logging
+        self.logger = get_structured_logger(f"worker.{handler_name}", "rag-worker")
         
     @abstractmethod
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -131,30 +132,91 @@ class BaseHandler(ABC):
     
     async def connect(self) -> bool:
         """
-        Connect to NATS server
+        Connect to NATS server with comprehensive error handling and retry logic
         
         Returns:
             bool: True if connection successful
         """
-        try:
-            self.nc = await nats.connect(
-                servers=[self.config.nats_url],
-                max_reconnect_attempts=self.config.max_reconnect_attempts,
-                reconnect_time_wait=self.config.reconnect_time_wait,
-                ping_interval=self.config.ping_interval,
-                max_outstanding_pings=self.config.max_outstanding_pings,
-                disconnected_cb=self._on_disconnected,
-                reconnected_cb=self._on_reconnected,
-                error_cb=self._on_error
-            )
+        max_retries = 3
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                self.logger.info(
+                    f"Attempting NATS connection (attempt {attempt + 1}/{max_retries})",
+                    nats_url=self.config.nats_url,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1
+                )
+                
+                self.nc = await nats.connect(
+                    servers=[self.config.nats_url],
+                    max_reconnect_attempts=self.config.max_reconnect_attempts,
+                    reconnect_time_wait=self.config.reconnect_time_wait,
+                    ping_interval=self.config.ping_interval,
+                    max_outstanding_pings=self.config.max_outstanding_pings,
+                    disconnected_cb=self._on_disconnected,
+                    reconnected_cb=self._on_reconnected,
+                    error_cb=self._on_error
+                )
+                
+                self.js = self.nc.jetstream()
+                
+                self.logger.info(
+                    "Successfully connected to NATS",
+                    nats_url=self.config.nats_url,
+                    handler_name=self.handler_name,
+                    connection_info=self.nc.connected_url
+                )
+                return True
+                
+            except ConnectionRefusedError as e:
+                self.logger.error(
+                    f"NATS connection refused (attempt {attempt + 1})",
+                    error=e,
+                    nats_url=self.config.nats_url,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
+                
+            except asyncio.TimeoutError as e:
+                self.logger.error(
+                    f"NATS connection timeout (attempt {attempt + 1})",
+                    error=e,
+                    nats_url=self.config.nats_url,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
+                
+            except Exception as e:
+                self.logger.error(
+                    f"Unexpected NATS connection error (attempt {attempt + 1})",
+                    error=e,
+                    nats_url=self.config.nats_url,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error_type=type(e).__name__
+                )
             
-            self.js = self.nc.jetstream()
-            self.logger.info(f"Connected to NATS at {self.config.nats_url}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to connect to NATS: {e}")
-            return False
+            # Wait before retry (except on last attempt)
+            if attempt < max_retries - 1:
+                self.logger.warning(
+                    f"Retrying NATS connection in {retry_delay} seconds",
+                    retry_delay=retry_delay
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 1.5  # Exponential backoff
+        
+        self.logger.critical(
+            "Failed to connect to NATS after all retry attempts",
+            nats_url=self.config.nats_url,
+            handler_name=self.handler_name,
+            max_retries=max_retries
+        )
+        return False
     
     async def disconnect(self):
         """Disconnect from NATS server"""
@@ -248,110 +310,335 @@ class BaseHandler(ABC):
     
     async def _process_single_message(self, msg: Msg):
         """
-        Process a single message with error handling and logging
+        Process a single message with comprehensive error handling, logging, and retry logic
         
         Args:
             msg: NATS message
         """
         start_time = datetime.now()
         message_id = msg.headers.get('message-id', 'unknown') if msg.headers else 'unknown'
+        retry_count = int(msg.headers.get('retry-count', '0') if msg.headers else 0)
+        max_retries = self.config.max_retries
         
         try:
             # Deserialize message data
             try:
                 data = json.loads(msg.data.decode('utf-8'))
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                self.logger.error(
+                    "Message deserialization failed",
+                    error=e,
+                    message_id=message_id,
+                    handler_name=self.handler_name,
+                    error_type="deserialization_error",
+                    raw_data_length=len(msg.data) if msg.data else 0
+                )
                 raise MessageProcessingError(f"Failed to deserialize message: {e}")
             
-            self.logger.debug(f"Processing message {message_id}: {data}")
+            self.logger.debug(
+                "Processing message",
+                message_id=message_id,
+                handler_name=self.handler_name,
+                retry_count=retry_count,
+                data_keys=list(data.keys()) if isinstance(data, dict) else "non-dict-data"
+            )
             
-            # Process the message
-            result = await self.process_message(data)
+            # Process the message with timeout
+            try:
+                processing_timeout = getattr(self.config, f'{self.handler_name.replace("-", "_")}_timeout', 60.0)
+                result = await asyncio.wait_for(
+                    self.process_message(data),
+                    timeout=processing_timeout
+                )
+            except asyncio.TimeoutError:
+                self.logger.error(
+                    "Message processing timeout",
+                    message_id=message_id,
+                    handler_name=self.handler_name,
+                    timeout=processing_timeout,
+                    retry_count=retry_count
+                )
+                raise MessageProcessingError(f"Processing timeout after {processing_timeout}s")
             
             # Publish result if needed
             result_subject = self.get_result_subject(data)
             if result_subject and result:
-                await self._publish_result(result_subject, result, message_id)
+                await self._publish_result_with_retry(result_subject, result, message_id)
             
             # Acknowledge message
             await msg.ack()
             
-            # Update statistics
+            # Update statistics and log success
             self.message_count += 1
             processing_time = (datetime.now() - start_time).total_seconds()
             
-            self.logger.info(
-                f"Message {message_id} processed successfully in {processing_time:.2f}s"
+            self.logger.log_operation(
+                f"message_processing",
+                processing_time,
+                success=True,
+                message_id=message_id,
+                handler_name=self.handler_name,
+                retry_count=retry_count,
+                result_published=result_subject is not None
             )
             
-        except Exception as e:
-            # Handle processing error
-            self.error_count += 1
-            processing_time = (datetime.now() - start_time).total_seconds()
+        except MessageProcessingError as e:
+            # Handle expected processing errors
+            await self._handle_processing_error(msg, message_id, e, start_time, retry_count, max_retries, "processing_error")
             
-            error_msg = f"Error processing message {message_id}: {str(e)}"
-            self.logger.error(error_msg, exc_info=True)
+        except ConnectionError as e:
+            # Handle connection errors (NATS, external services)
+            await self._handle_processing_error(msg, message_id, e, start_time, retry_count, max_retries, "connection_error")
+            
+        except Exception as e:
+            # Handle unexpected errors
+            await self._handle_processing_error(msg, message_id, e, start_time, retry_count, max_retries, "unexpected_error")
+    
+    async def _handle_processing_error(
+        self,
+        msg: Msg,
+        message_id: str,
+        error: Exception,
+        start_time: datetime,
+        retry_count: int,
+        max_retries: int,
+        error_category: str
+    ):
+        """
+        Handle processing errors with retry logic and structured logging
+        
+        Args:
+            msg: NATS message
+            message_id: Message identifier
+            error: Exception that occurred
+            start_time: Processing start time
+            retry_count: Current retry count
+            max_retries: Maximum retries allowed
+            error_category: Category of error for logging
+        """
+        self.error_count += 1
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        # Determine if we should retry
+        should_retry = retry_count < max_retries and self._is_retryable_error(error)
+        
+        # Log error with structured data
+        log_level = "warning" if should_retry else "error"
+        getattr(self.logger, log_level)(
+            f"Message processing {error_category}: {str(error)}",
+            error=error,
+            message_id=message_id,
+            handler_name=self.handler_name,
+            retry_count=retry_count,
+            max_retries=max_retries,
+            processing_time=processing_time,
+            error_category=error_category,
+            will_retry=should_retry,
+            error_type=type(error).__name__
+        )
+        
+        if should_retry:
+            # Calculate exponential backoff delay
+            base_delay = self.config.retry_delay
+            backoff_delay = base_delay * (2 ** retry_count)
             
             # Negative acknowledge with retry
             try:
-                await msg.nak(delay=self.config.retry_delay)
+                await msg.nak(delay=backoff_delay)
+                self.logger.info(
+                    "Message scheduled for retry",
+                    message_id=message_id,
+                    retry_count=retry_count + 1,
+                    max_retries=max_retries,
+                    retry_delay=backoff_delay
+                )
             except Exception as nak_error:
-                self.logger.error(f"Failed to NAK message: {nak_error}")
-            
-            # Publish error notification if configured
-            await self._publish_error(message_id, str(e), traceback.format_exc())
+                self.logger.error(
+                    "Failed to NAK message for retry",
+                    error=nak_error,
+                    message_id=message_id,
+                    handler_name=self.handler_name
+                )
+        else:
+            # Acknowledge to prevent infinite retries
+            try:
+                await msg.ack()
+                self.logger.error(
+                    "Message permanently failed after max retries",
+                    message_id=message_id,
+                    handler_name=self.handler_name,
+                    retry_count=retry_count,
+                    max_retries=max_retries,
+                    final_error=str(error)
+                )
+            except Exception as ack_error:
+                self.logger.error(
+                    "Failed to ACK failed message",
+                    error=ack_error,
+                    message_id=message_id,
+                    handler_name=self.handler_name
+                )
+        
+        # Publish error notification
+        await self._publish_error_with_context(
+            message_id, str(error), traceback.format_exc(), 
+            retry_count, should_retry, error_category
+        )
     
-    async def _publish_result(self, subject: str, result: Dict[str, Any], message_id: str):
+    def _is_retryable_error(self, error: Exception) -> bool:
         """
-        Publish processing result to NATS
+        Determine if an error is retryable
+        
+        Args:
+            error: Exception to check
+            
+        Returns:
+            bool: True if error should be retried
+        """
+        # Non-retryable errors
+        non_retryable_types = (
+            MessageProcessingError,  # Typically validation/logic errors
+            ValueError,              # Bad input data
+            KeyError,               # Missing required fields
+        )
+        
+        # Retryable errors
+        retryable_types = (
+            ConnectionError,        # Network/connection issues
+            TimeoutError,          # Timeout issues
+            OSError,               # I/O errors
+        )
+        
+        if isinstance(error, non_retryable_types):
+            return False
+        
+        if isinstance(error, retryable_types):
+            return True
+        
+        # For other errors, check the error message for known patterns
+        error_msg = str(error).lower()
+        retryable_patterns = [
+            'connection', 'timeout', 'network', 'temporary', 'unavailable',
+            'busy', 'overloaded', 'rate limit', 'throttled'
+        ]
+        
+        return any(pattern in error_msg for pattern in retryable_patterns)
+    
+    async def _publish_result_with_retry(self, subject: str, result: Dict[str, Any], message_id: str):
+        """
+        Publish processing result to NATS with retry logic
         
         Args:
             subject: NATS subject to publish to
             result: Result data
             message_id: Original message ID
         """
-        try:
-            # Add metadata
-            result_data = {
-                'handler': self.handler_name,
-                'message_id': message_id,
-                'processed_at': datetime.now().isoformat(),
-                'result': result
-            }
-            
-            # Serialize and publish
-            payload = json.dumps(result_data, default=str).encode('utf-8')
-            await self.js.publish(subject, payload)
-            
-            self.logger.debug(f"Published result for message {message_id} to {subject}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to publish result: {e}")
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # Add metadata
+                result_data = {
+                    'handler': self.handler_name,
+                    'message_id': message_id,
+                    'processed_at': datetime.now().isoformat(),
+                    'result': result
+                }
+                
+                # Serialize and publish
+                payload = json.dumps(result_data, default=str).encode('utf-8')
+                await self.js.publish(subject, payload)
+                
+                self.logger.debug(
+                    "Published result successfully",
+                    message_id=message_id,
+                    subject=subject,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    result_size=len(payload)
+                )
+                return
+                
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to publish result (attempt {attempt + 1})",
+                    error=e,
+                    message_id=message_id,
+                    subject=subject,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+        
+        self.logger.error(
+            "Failed to publish result after all retries",
+            message_id=message_id,
+            subject=subject,
+            handler_name=self.handler_name,
+            max_retries=max_retries
+        )
     
-    async def _publish_error(self, message_id: str, error: str, traceback_str: str):
+    async def _publish_error_with_context(
+        self,
+        message_id: str,
+        error: str,
+        traceback_str: str,
+        retry_count: int,
+        will_retry: bool,
+        error_category: str
+    ):
         """
-        Publish error notification
+        Publish enhanced error notification with context
         
         Args:
             message_id: Message ID that failed
             error: Error message
             traceback_str: Error traceback
+            retry_count: Current retry count
+            will_retry: Whether the message will be retried
+            error_category: Category of error
         """
         try:
             error_data = {
                 'handler': self.handler_name,
                 'message_id': message_id,
                 'error': error,
+                'error_category': error_category,
                 'traceback': traceback_str,
-                'timestamp': datetime.now().isoformat()
+                'retry_count': retry_count,
+                'will_retry': will_retry,
+                'timestamp': datetime.now().isoformat(),
+                'handler_stats': {
+                    'message_count': self.message_count,
+                    'error_count': self.error_count,
+                    'uptime': (datetime.now() - self.start_time).total_seconds()
+                }
             }
             
             subject = f"system.errors.{self.handler_name}"
             payload = json.dumps(error_data, default=str).encode('utf-8')
             await self.js.publish(subject, payload)
             
+            self.logger.debug(
+                "Published error notification",
+                message_id=message_id,
+                error_category=error_category,
+                will_retry=will_retry
+            )
+            
         except Exception as e:
-            self.logger.error(f"Failed to publish error notification: {e}")
+            self.logger.critical(
+                "Failed to publish error notification",
+                error=e,
+                message_id=message_id,
+                handler_name=self.handler_name,
+                original_error=error
+            )
     
     async def _on_disconnected(self):
         """Callback for NATS disconnection"""
@@ -401,7 +688,7 @@ class WorkerPool:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
-        self.logger = logging.getLogger("worker.pool")
+        self.logger = get_structured_logger("worker.pool", "rag-worker")
     
     def add_handler(self, handler: BaseHandler):
         """

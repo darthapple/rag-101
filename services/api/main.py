@@ -18,11 +18,12 @@ from typing import Dict, Any
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import uvicorn
 
 # Add project root to Python path for shared imports
@@ -30,9 +31,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from shared.config import get_config
+from shared.logging import get_structured_logger, StructuredLogger
 from shared.websocket_manager import get_websocket_manager
 from shared.session_manager import get_session_manager
 from middleware.session_middleware import SessionMiddleware
+from middleware.error_handling import ErrorHandlingMiddleware
 
 
 # Global application state
@@ -188,6 +191,14 @@ def create_app() -> FastAPI:
 def setup_middleware(app: FastAPI, config):
     """Configure application middleware"""
     
+    # Error handling middleware (first to catch all errors)
+    app.add_middleware(
+        ErrorHandlingMiddleware,
+        enable_circuit_breaker=config.is_production(),
+        enable_rate_limiting=config.is_production(),
+        enable_error_aggregation=True
+    )
+    
     # Trusted host middleware (security)
     if config.is_production():
         app.add_middleware(
@@ -202,7 +213,7 @@ def setup_middleware(app: FastAPI, config):
         allow_credentials=True,
         allow_methods=config.cors_methods,
         allow_headers=["*"],
-        expose_headers=["X-Request-ID", "X-Processing-Time"]
+        expose_headers=["X-Request-ID", "X-Processing-Time", "X-Service"]
     )
     
     # Session validation middleware (optional auto-validation)
@@ -211,72 +222,296 @@ def setup_middleware(app: FastAPI, config):
         auto_validate=False  # Only validate when explicitly requested
     )
     
-    # Custom request/response middleware
+    # Enhanced request/response middleware with structured logging
     @app.middleware("http")
     async def request_middleware(request: Request, call_next):
-        """Custom middleware for logging and request processing"""
+        """Enhanced middleware for comprehensive request logging and processing"""
         start_time = datetime.now()
         request_id = f"req_{int(start_time.timestamp() * 1000)}"
         
-        # Add request ID to state
+        # Add request ID and timing to state
         request.state.request_id = request_id
         request.state.start_time = start_time
         
+        # Initialize structured logger for requests
+        request_logger = get_structured_logger("api.requests", "rag-api")
+        
+        # Log incoming request
+        request_logger.debug(
+            f"Incoming request: {request.method} {request.url.path}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            request_path=request.url.path,
+            user_agent=request.headers.get("user-agent", "unknown"),
+            client_ip=request.client.host if request.client else "unknown"
+        )
+        
         # Process request
+        response = None
         try:
             response = await call_next(request)
             
-            # Add custom headers
+            # Calculate processing time
             processing_time = (datetime.now() - start_time).total_seconds()
+            
+            # Add custom headers
             response.headers["X-Request-ID"] = request_id
             response.headers["X-Processing-Time"] = f"{processing_time:.3f}s"
+            response.headers["X-Service"] = "rag-api"
             
-            # Log request (only in development)
-            if config.is_development():
-                logger = logging.getLogger("api.requests")
-                logger.info(
-                    f"{request.method} {request.url.path} "
-                    f"- {response.status_code} "
-                    f"- {processing_time:.3f}s"
-                )
+            # Log successful request with structured data
+            request_logger.log_request(
+                method=request.method,
+                url=request.url.path,
+                status_code=response.status_code,
+                response_time=processing_time,
+                request_id=request_id,
+                client_ip=request.client.host if request.client else "unknown",
+                user_agent=request.headers.get("user-agent", "unknown")[:100],  # Truncate long user agents
+                response_size=len(response.body) if hasattr(response, 'body') else 0
+            )
             
             return response
             
         except Exception as e:
-            # Log error
-            logger = logging.getLogger("api.errors")
-            logger.error(f"Request {request_id} failed: {e}", exc_info=True)
+            # Calculate processing time even for errors
+            processing_time = (datetime.now() - start_time).total_seconds()
+            
+            # Log error with structured data
+            request_logger.log_exception(
+                f"Request {request_id} failed: {str(e)}",
+                exception=e,
+                request_id=request_id,
+                request_method=request.method,
+                request_url=str(request.url),
+                processing_time=processing_time,
+                client_ip=request.client.host if request.client else "unknown"
+            )
+            
+            # Re-raise to let exception handlers deal with it
             raise
 
 
 def setup_exception_handlers(app: FastAPI):
-    """Setup global exception handlers"""
+    """Setup comprehensive global exception handlers with structured logging"""
+    
+    # Initialize structured logger for error handling
+    error_logger = get_structured_logger("api.errors", "rag-api")
     
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        """Handle validation errors"""
+        """Handle validation errors with structured logging"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.error(
+            "Request validation failed",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            validation_errors=exc.errors(),
+            error_type="validation_error"
+        )
+        
         return JSONResponse(
             status_code=422,
             content={
                 "error": "validation_error",
                 "message": "Request validation failed",
                 "details": exc.errors(),
-                "request_id": getattr(request.state, 'request_id', 'unknown')
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        """Handle HTTP exceptions with structured logging"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        # Log different levels based on status code
+        if exc.status_code >= 500:
+            log_level = "error"
+        elif exc.status_code >= 400:
+            log_level = "warning"
+        else:
+            log_level = "info"
+        
+        getattr(error_logger, log_level)(
+            f"HTTP exception: {exc.detail}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            status_code=exc.status_code,
+            error_type="http_error",
+            error_detail=exc.detail
+        )
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": "http_error",
+                "message": exc.detail,
+                "status_code": exc.status_code,
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_exception_handler(request: Request, exc: StarletteHTTPException):
+        """Handle Starlette HTTP exceptions"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.warning(
+            f"Starlette HTTP exception: {exc.detail}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            status_code=exc.status_code,
+            error_type="starlette_http_error"
+        )
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": "http_error",
+                "message": exc.detail if hasattr(exc, 'detail') else "HTTP error occurred",
+                "status_code": exc.status_code,
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError):
+        """Handle ValueError exceptions (typically bad input)"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.warning(
+            f"Value error: {str(exc)}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            error_type="value_error",
+            error_message=str(exc)
+        )
+        
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "bad_request",
+                "message": "Invalid input provided",
+                "details": str(exc),
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(KeyError)
+    async def key_error_handler(request: Request, exc: KeyError):
+        """Handle KeyError exceptions (missing required fields)"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.warning(
+            f"Key error: {str(exc)}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            error_type="key_error",
+            missing_key=str(exc)
+        )
+        
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "missing_field",
+                "message": f"Required field missing: {str(exc)}",
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(ConnectionError)
+    async def connection_error_handler(request: Request, exc: ConnectionError):
+        """Handle connection errors (NATS, Milvus, etc.)"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.error(
+            f"Connection error: {str(exc)}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            error_type="connection_error",
+            error_message=str(exc)
+        )
+        
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "service_unavailable",
+                "message": "External service temporarily unavailable",
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
+    @app.exception_handler(TimeoutError)
+    async def timeout_error_handler(request: Request, exc: TimeoutError):
+        """Handle timeout errors"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.error(
+            f"Timeout error: {str(exc)}",
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            error_type="timeout_error",
+            error_message=str(exc)
+        )
+        
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": "timeout",
+                "message": "Request timed out",
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
             }
         )
     
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
-        """Handle general exceptions"""
-        logger = logging.getLogger("api.errors")
-        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        """Handle all other exceptions with comprehensive logging"""
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        error_logger.error(
+            f"Unhandled exception: {str(exc)}",
+            error=exc,
+            request_id=request_id,
+            request_method=request.method,
+            request_url=str(request.url),
+            error_type=type(exc).__name__,
+            error_message=str(exc)
+        )
+        
+        # In production, don't expose internal error details
+        config = get_config()
+        if config.is_production():
+            message = "An internal error occurred"
+            details = None
+        else:
+            message = str(exc)
+            details = type(exc).__name__
         
         return JSONResponse(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": "An internal error occurred",
-                "request_id": getattr(request.state, 'request_id', 'unknown')
+                "message": message,
+                "details": details,
+                "request_id": request_id,
+                "timestamp": datetime.now().isoformat()
             }
         )
 
@@ -330,7 +565,7 @@ def setup_routers(app: FastAPI):
         
         @app.get("/health", tags=["health"])
         async def basic_health():
-            """Basic health check endpoint"""
+            """Enhanced health check endpoint"""
             return {
                 "status": app_state['health_status'],
                 "service": "rag-api",
@@ -338,32 +573,40 @@ def setup_routers(app: FastAPI):
                 "timestamp": datetime.now().isoformat(),
                 "uptime": (datetime.now() - app_state['start_time']).total_seconds(),
                 "websocket_manager": app_state['websocket_manager'] is not None,
-                "nats_connected": app_state['nats_connected']
+                "nats_connected": app_state['nats_connected'],
+                "error_handling": "enabled",
+                "structured_logging": "enabled"
             }
 
 
 def setup_logging():
-    """Setup logging configuration"""
+    """Setup comprehensive structured logging configuration"""
     config = get_config()
     
-    # Configure logging
-    logging.basicConfig(
-        level=getattr(logging, config.log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('api.log') if config.environment == 'production' else logging.NullHandler()
-        ]
-    )
+    # Initialize structured logging framework
+    from shared.logging import setup_logging as setup_structured_logging
     
-    # Set specific logger levels
+    # Setup structured logging for the API service
+    api_logger = setup_structured_logging("rag-api")
+    
+    # Configure additional loggers for FastAPI ecosystem
     if config.environment == 'development':
         logging.getLogger('api').setLevel(logging.DEBUG)
         logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+        logging.getLogger('fastapi').setLevel(logging.INFO)
     elif config.environment == 'production':
         # Reduce noise in production
         logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
         logging.getLogger('fastapi').setLevel(logging.WARNING)
+        logging.getLogger('uvicorn.error').setLevel(logging.INFO)
+    
+    # Log successful initialization
+    api_logger.info(
+        "API service logging initialized",
+        environment=config.environment,
+        log_level=config.log_level,
+        service_name="rag-api"
+    )
 
 
 def get_app_stats() -> Dict[str, Any]:

@@ -20,6 +20,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from shared.config import get_config
+from shared.logging import setup_logging, get_structured_logger
 from handlers.base import WorkerPool, BaseHandler
 
 
@@ -40,7 +41,7 @@ class WorkerService:
         self.config = get_config()
         self.pool = WorkerPool()
         self.start_time = datetime.now()
-        self.logger = logging.getLogger("worker.service")
+        self.logger = get_structured_logger("worker.service", "rag-worker")
         
         # Service metadata
         self.service_info = {
@@ -84,7 +85,14 @@ class WorkerService:
         
         # Note: Additional handlers (embedding, question) will be added as they are implemented
         
-        self.logger.info(f"Configured {len(self.pool.handlers)} handlers")
+        self.logger.info(
+            "Handlers configured",
+            handler_count=len(self.pool.handlers),
+            handlers=[h.handler_name for h in self.pool.handlers],
+            max_document_workers=self.config.max_document_workers,
+            max_embedding_workers=self.config.max_embedding_workers,
+            max_question_workers=self.config.max_question_workers
+        )
     
     async def start(self) -> bool:
         """
@@ -93,7 +101,13 @@ class WorkerService:
         Returns:
             bool: True if service started successfully
         """
-        self.logger.info("Starting RAG Worker Service...")
+        self.logger.info(
+            "Starting RAG Worker Service",
+            service_name="rag-worker",
+            version=self.service_info['version'],
+            environment=self.config.environment,
+            nats_url=self.config.nats_url
+        )
         
         try:
             # Setup handlers
@@ -101,7 +115,11 @@ class WorkerService:
             
             # Start handler pool
             if not await self.pool.start_all():
-                self.logger.error("Failed to start handler pool")
+                self.logger.error(
+                "Failed to start handler pool",
+                handler_count=len(self.pool.handlers),
+                service_name="rag-worker"
+            )
                 return False
             
             # Log service startup
@@ -225,37 +243,37 @@ class DummyHandler(BaseHandler):
         }
 
 
-def setup_logging():
-    """Setup logging configuration"""
+def setup_worker_logging():
+    """Setup comprehensive structured logging for worker service"""
+    # Use shared structured logging setup
+    logger = setup_logging("rag-worker")
+    
+    # Set specific logger levels for worker components
     config = get_config()
-    
-    # Configure logging
-    logging.basicConfig(
-        level=getattr(logging, config.log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('worker.log') if config.environment == 'production' else logging.NullHandler()
-        ]
-    )
-    
-    # Set specific logger levels
     if config.environment == 'development':
         logging.getLogger('worker').setLevel(logging.DEBUG)
+        logging.getLogger('handlers').setLevel(logging.DEBUG)
     elif config.environment == 'production':
         # Reduce noise in production
         logging.getLogger('nats').setLevel(logging.WARNING)
         logging.getLogger('pymilvus').setLevel(logging.WARNING)
+        logging.getLogger('langchain').setLevel(logging.WARNING)
+        logging.getLogger('aiohttp').setLevel(logging.WARNING)
+    
+    return logger
 
 
 async def main():
     """Main entry point"""
-    # Setup logging
-    setup_logging()
-    logger = logging.getLogger("worker.main")
+    # Setup structured logging
+    logger = setup_worker_logging()
     
     try:
-        logger.info("Initializing RAG Worker Service...")
+        logger.info(
+            "Initializing RAG Worker Service",
+            service_name="rag-worker",
+            process_id=os.getpid()
+        )
         
         # Create and run service
         service = WorkerService()

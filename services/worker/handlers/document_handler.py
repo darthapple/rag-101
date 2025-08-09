@@ -27,6 +27,7 @@ from handlers.base import BaseHandler, MessageProcessingError
 import sys
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
 from shared.models import Document, DocumentChunk, DocumentStatus
+from shared.logging import get_structured_logger
 
 
 class DocumentDownloadError(Exception):
@@ -95,7 +96,15 @@ class DocumentHandler(BaseHandler):
         
         self.disease_regex = re.compile('|'.join(self.disease_patterns), re.IGNORECASE)
         
-        self.logger.info(f"Document handler initialized with chunk_size={self.chunk_size}, overlap={self.chunk_overlap}")
+        self.logger.info(
+            "Document handler initialized",
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            max_file_size=self.max_file_size,
+            download_timeout=self.download_timeout,
+            handler_name=handler_name,
+            max_workers=max_workers
+        )
     
     def get_subscription_subject(self) -> str:
         """Subscribe to document download requests"""
@@ -127,6 +136,7 @@ class DocumentHandler(BaseHandler):
         Raises:
             MessageProcessingError: If processing fails
         """
+        processing_start_time = datetime.now()
         try:
             # Extract request data
             url = data.get('url')
@@ -136,7 +146,13 @@ class DocumentHandler(BaseHandler):
             if not url:
                 raise MessageProcessingError("Missing 'url' in message data")
             
-            self.logger.info(f"Processing document: {url} (job_id: {job_id})")
+            self.logger.info(
+                "Starting document processing",
+                url=url,
+                job_id=job_id,
+                metadata_keys=list(metadata.keys()) if metadata else [],
+                handler_name=self.handler_name
+            )
             
             # Download PDF
             file_path, file_info = await self.download_pdf(url, job_id)
@@ -151,7 +167,15 @@ class DocumentHandler(BaseHandler):
                 # Extract metadata from chunks
                 processed_chunks = await self.process_chunks(chunks, url, job_id, metadata)
                 
-                self.logger.info(f"Successfully processed {len(processed_chunks)} chunks from {url}")
+                self.logger.log_operation(
+                    "document_processing",
+                    (datetime.now() - processing_start_time).total_seconds(),
+                    success=True,
+                    url=url,
+                    job_id=job_id,
+                    chunk_count=len(processed_chunks),
+                    file_size=file_info.get('file_size', 0)
+                )
                 
                 return {
                     'job_id': job_id,
@@ -168,19 +192,42 @@ class DocumentHandler(BaseHandler):
                 await self.cleanup_file(file_path)
                 
         except DocumentDownloadError as e:
-            error_msg = f"Download failed for {url}: {str(e)}"
-            self.logger.error(error_msg)
-            raise MessageProcessingError(error_msg)
+            processing_time = (datetime.now() - processing_start_time).total_seconds()
+            self.logger.log_operation(
+                "document_processing",
+                processing_time,
+                success=False,
+                url=url,
+                job_id=job_id,
+                error_type="download_error",
+                error=e
+            )
+            raise MessageProcessingError(f"Download failed for {url}: {str(e)}")
             
         except DocumentProcessingError as e:
-            error_msg = f"Processing failed for {url}: {str(e)}"
-            self.logger.error(error_msg)
-            raise MessageProcessingError(error_msg)
+            processing_time = (datetime.now() - processing_start_time).total_seconds()
+            self.logger.log_operation(
+                "document_processing",
+                processing_time,
+                success=False,
+                url=url,
+                job_id=job_id,
+                error_type="processing_error",
+                error=e
+            )
+            raise MessageProcessingError(f"Processing failed for {url}: {str(e)}")
             
         except Exception as e:
-            error_msg = f"Unexpected error processing {url}: {str(e)}"
-            self.logger.error(error_msg, exc_info=True)
-            raise MessageProcessingError(error_msg)
+            processing_time = (datetime.now() - processing_start_time).total_seconds()
+            self.logger.log_exception(
+                f"Unexpected error processing document {url}",
+                exception=e,
+                url=url,
+                job_id=job_id,
+                processing_time=processing_time,
+                handler_name=self.handler_name
+            )
+            raise MessageProcessingError(f"Unexpected error processing {url}: {str(e)}")
     
     async def download_pdf(self, url: str, job_id: str) -> Tuple[str, Dict[str, Any]]:
         """
