@@ -1,4 +1,4 @@
-# RAG 101 Project
+# RAG 101 Project - Product Requirements Document
 
 This project is intended to be a starting point for people creating a RAG (**R**etrieval **A**ugmented **G**eneration) system. Its main goal is to create a system to answer questions about illnesses based on documents from [Protocolos Clínicos e Diretrizes Terapêuticas - PCDT](https://www.gov.br/saude/pt-br/assuntos/pcdt).
 
@@ -456,7 +456,7 @@ Detailed explanation of system flows, design decisions, and ephemeral data patte
 
 ### System Workflows
 
-The system implements two main workflows detailed in the sequence diagrams above:
+The system implements two main workflows:
 
 1. **Document Processing**: URLs → Download → Chunking → Embedding → Vector Storage
 2. **Question & Answer**: Session Creation → Question Processing → RAG Pipeline → Real-time Answer Delivery
