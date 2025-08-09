@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "task-master": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "--package=task-master-ai", "task-master-ai"],
+      "env": {},
+      "alwaysAllow": [
+        "create_task",
+        "list_tasks",
+        "update_task",
+        "delete_task",
+        "get_task_details"
+      ]
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "alwaysAllow": [
+        "resolve-library-id",
+        "get-library-docs",
+        "search-documentation",
+        "get-code-examples"
+      ]
+    }
+  }
+}
