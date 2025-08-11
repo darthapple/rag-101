@@ -70,6 +70,32 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/nats:/data
     command: -js -sd /data
 
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: rag-101-api
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - NATS_URL=nats://nats:4222
+      - MILVUS_HOST=standalone
+      - MILVUS_PORT=19530
+    depends_on:
+      standalone:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/api-logs:/app/logs
+
 networks:
   default:
     name: milvus

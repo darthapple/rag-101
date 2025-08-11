@@ -17,16 +17,20 @@ RUN apt-get update && apt-get install -y \
 # Install Poetry
 RUN pip install poetry==1.7.1
 
-# Configure Poetry
+# Configure Poetry - Create virtual environment in project
 ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VENV_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_CACHE_DIR=/tmp/poetry_cache
 
 # Set work directory
 WORKDIR /app
 
 # Copy Poetry configuration files
-COPY pyproject.toml poetry.lock* ./
+COPY services/api/pyproject.toml services/api/poetry.lock* ./
+
+# Copy the application code and shared module
+COPY services/api/ ./
+COPY shared/ ./shared/
 
 # Install dependencies
 RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
@@ -54,8 +58,10 @@ WORKDIR /app
 # Copy virtual environment from builder stage
 COPY --from=builder --chown=apiuser:apiuser /app/.venv /app/.venv
 
-# Copy application code
-COPY --chown=apiuser:apiuser . .
+# Copy application code (only API service files)
+COPY --chown=apiuser:apiuser services/api/ .
+# Copy shared module
+COPY --chown=apiuser:apiuser shared/ ./shared/
 
 # Create necessary directories
 RUN mkdir -p /app/logs && chown -R apiuser:apiuser /app/logs
