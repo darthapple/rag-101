@@ -248,7 +248,7 @@ class NATSConfigurator:
                 max_age=stream_config.get('max_age', timedelta(hours=1)).total_seconds(),
                 storage=stream_config.get('storage', StorageType.MEMORY),
                 discard=stream_config.get('discard', DiscardPolicy.OLD),
-                duplicate_window=stream_config.get('duplicate_window', timedelta(minutes=1)).total_seconds() * 1_000_000_000  # Convert to nanoseconds
+                duplicate_window=stream_config.get('duplicate_window', timedelta(minutes=1)).total_seconds()
             )
             
             # Check if stream exists

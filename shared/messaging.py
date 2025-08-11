@@ -288,7 +288,7 @@ class NATSClient:
             config = StreamConfig(
                 name=name,
                 subjects=subjects,
-                max_age=max_age,
+                max_age=max_age,  # In seconds
                 max_msgs=max_msgs,
                 storage=storage
             )
@@ -1131,7 +1131,7 @@ class NATSClient:
             stream_info = await self._js.stream_info(stream_name)
             config = stream_info.config
             
-            # Update max_age
+            # Update max_age (in seconds)
             config.max_age = new_max_age
             
             # Update stream

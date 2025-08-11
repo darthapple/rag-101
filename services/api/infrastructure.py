@@ -101,10 +101,10 @@ class InfrastructureManager:
                     description=stream_def["description"],
                     retention=RetentionPolicy.LIMITS,
                     storage=StorageType.FILE,
-                    max_age=self.config.message_ttl,  # Already in seconds
+                    max_age=self.config.message_ttl,  # In seconds
                     max_msgs=10000,
                     max_bytes=100 * 1024 * 1024,  # 100MB
-                    duplicate_window=60  # 60 seconds
+                    duplicate_window=60  # In seconds
                 )
                 
                 await self.js.add_stream(stream_config)
@@ -120,10 +120,10 @@ class InfrastructureManager:
                             description=stream_def["description"],
                             retention=RetentionPolicy.LIMITS,
                             storage=StorageType.FILE,
-                            max_age=self.config.message_ttl * 1_000_000_000,
+                            max_age=self.config.message_ttl,
                             max_msgs=10000,
                             max_bytes=100 * 1024 * 1024,
-                            duplicate_window=60 * 1_000_000_000
+                            duplicate_window=60
                         )
                         await self.js.update_stream(stream_config)
                         print(f"  ✓ Updated existing stream: {stream_def['name']}")
