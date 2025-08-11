@@ -231,3 +231,11 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/ 
+
+# Test files
+simple_config.py
+services/api/simple_config.py
+services/api/test.*
+services/api/test_documents/
+watch_*
+
