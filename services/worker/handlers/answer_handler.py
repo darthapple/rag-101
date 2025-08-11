@@ -28,6 +28,7 @@ from handlers.base import BaseHandler, MessageProcessingError
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
 from shared.database import MilvusDatabase, MilvusConnectionError, MilvusOperationError
 from shared.models import Question, Answer, AnswerSource
+from shared.messaging import NATSClient, create_nats_client
 
 
 class QuestionProcessingError(Exception):
@@ -65,6 +66,9 @@ class AnswerHandler(BaseHandler):
         # Configuration
         self.question_timeout = self.config.question_timeout
         self.max_retries = self.config.max_retries
+        
+        # NATS messaging configuration
+        self.messaging = create_nats_client()
         
         # RAG configuration
         self.top_k_documents = 5  # Number of documents to retrieve
@@ -143,7 +147,7 @@ RESPOSTA:""",
     
     def get_subscription_subject(self) -> str:
         """Subscribe to questions topic"""
-        return "chat.questions"
+        return self.messaging.topics['questions']
     
     def get_consumer_config(self) -> Dict[str, Any]:
         """Consumer configuration for question processing"""
@@ -158,7 +162,7 @@ RESPOSTA:""",
         """Publish answers to session-specific topics"""
         session_id = data.get('session_id')
         if session_id:
-            return f"chat.answers.{session_id}"
+            return f"{self.messaging.topics['answers']}.{session_id}"
         return None
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:

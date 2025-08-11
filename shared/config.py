@@ -577,13 +577,13 @@ class GeminiConfig(BaseSettings):
     
     # Model settings
     embedding_model: str = Field(
-        default="text-embedding-004",
+        default="models/text-embedding-004",
         env="GEMINI_EMBEDDING_MODEL",
         description="Gemini embedding model name"
     )
     
     chat_model: str = Field(
-        default="gemini-pro",
+        default="gemini-1.5-flash",
         env="GEMINI_CHAT_MODEL", 
         description="Gemini chat model name"
     )

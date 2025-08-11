@@ -143,9 +143,9 @@ class NATSSessionManager:
             try:
                 self.logger.info("Connecting to NATS for session management...")
                 
-                # Connect to NATS
+                # Connect to NATS using the same URL as main infrastructure
                 self.nats_client = await nats.connect(
-                    servers=self.config.nats_servers,
+                    servers=[self.config.nats_url],
                     max_reconnect_attempts=self.config.max_reconnect_attempts,
                     reconnect_time_wait=self.config.reconnect_time_wait,
                     ping_interval=self.config.ping_interval,

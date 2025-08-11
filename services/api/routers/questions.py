@@ -15,6 +15,7 @@ import nats
 from nats.js import JetStreamContext
 
 from simple_config import get_config
+from shared.messaging import NATSClient, create_nats_client
 
 # Request/Response models
 class QuestionRequest(BaseModel):
@@ -101,8 +102,12 @@ async def submit_question(request: QuestionRequest):
             "timestamp": datetime.now().isoformat()
         }
         
-        # Publish to chat.questions topic
-        await nc.publish("chat.questions", json.dumps(message).encode())
+        # Get centralized topic configuration
+        messaging = create_nats_client()
+        questions_topic = messaging.topics['questions']
+        
+        # Publish to questions topic
+        await nc.publish(questions_topic, json.dumps(message).encode())
         
         print(f"Published question {question_id} for session {request.session_id}")
         
