@@ -627,9 +627,10 @@ class Dashboard:
             return
             
         topics_to_monitor = [
-            'questions',
+            'chat.questions',
             'documents.download', 
-            'embeddings.create',
+            'documents.chunks',
+            'documents.embeddings',
             'system.metrics'
         ]
         

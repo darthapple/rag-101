@@ -69,8 +69,8 @@ async def submit_question(request: QuestionRequest):
     Submit a question for processing via NATS
     
     Validates session exists, then sends the question and session_id 
-    to the questions topic. Workers will process it and send answers 
-    to answers.{session_id}
+    to the chat.questions topic. Workers will process it and send answers 
+    to chat.answers.{session_id}
     """
     try:
         # Validate question is not empty
@@ -101,8 +101,8 @@ async def submit_question(request: QuestionRequest):
             "timestamp": datetime.now().isoformat()
         }
         
-        # Publish to questions topic
-        await nc.publish("questions", json.dumps(message).encode())
+        # Publish to chat.questions topic
+        await nc.publish("chat.questions", json.dumps(message).encode())
         
         print(f"Published question {question_id} for session {request.session_id}")
         

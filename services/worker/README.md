@@ -37,7 +37,7 @@ The service uses environment variables for configuration:
 
 ```bash
 # Required
-GOOGLE_API_KEY=your_gemini_api_key
+GEMINI_API_KEY=your_gemini_api_key
 
 # Optional (defaults provided)
 NATS_URL=nats://localhost:4222
@@ -72,7 +72,7 @@ poetry run mypy .
 docker build -t rag-worker .
 
 # Run container
-docker run -e GOOGLE_API_KEY=your_key rag-worker
+docker run -e GEMINI_API_KEY=your_key rag-worker
 ```
 
 ## Message Processing

@@ -37,7 +37,7 @@ class EmbeddingStorageError(Exception):
 class EmbeddingHandler(BaseHandler):
     """
     Handler for embedding generation workflow:
-    1. Consume document chunks from embeddings.create topic
+    1. Consume document chunks from documents.embeddings topic
     2. Generate embeddings using Google Gemini text-embedding-004
     3. Validate 768-dimensional vectors
     4. Store in Milvus collection with batch insertion
@@ -81,18 +81,17 @@ class EmbeddingHandler(BaseHandler):
     def _setup_gemini_client(self):
         """Setup Google Gemini API client"""
         try:
-            if not self.config.google_api_key:
-                raise EmbeddingGenerationError("GOOGLE_API_KEY not configured")
+            if not self.config.gemini_api_key:
+                raise EmbeddingGenerationError("GEMINI_API_KEY not configured")
             
             # Configure Gemini API
-            genai.configure(api_key=self.config.google_api_key)
+            genai.configure(api_key=self.config.gemini_api_key)
             
             # Initialize embeddings client
+            # Use the full model name for the newer API version
             self.embeddings_client = GoogleGenerativeAIEmbeddings(
-                model=self.embedding_model,
-                google_api_key=self.config.google_api_key,
-                task_type="retrieval_document",  # Optimized for document retrieval
-                title="Medical Document Embedding"
+                model=f"models/{self.embedding_model}",
+                google_api_key=self.config.gemini_api_key
             )
             
             self.logger.info(f"Gemini embeddings client initialized with {self.embedding_model}")
@@ -103,12 +102,12 @@ class EmbeddingHandler(BaseHandler):
     
     def get_subscription_subject(self) -> str:
         """Subscribe to embedding generation requests"""
-        return "embeddings.create"
+        return "documents.embeddings"
     
     def get_consumer_config(self) -> Dict[str, Any]:
         """Consumer configuration for embedding processing"""
         return {
-            'durable_name': 'embedding-processor',
+            'durable_name': 'document-embedding-worker',
             'manual_ack': True,
             'pending_msgs_limit': self.max_workers * 5,  # Higher limit for batch processing
             'ack_wait': self.embedding_timeout * 2  # Double timeout for ack wait
@@ -132,10 +131,24 @@ class EmbeddingHandler(BaseHandler):
             MessageProcessingError: If processing fails
         """
         try:
-            # Extract request data
-            job_id = data.get('job_id', str(uuid.uuid4()))
-            url = data.get('url', 'unknown')
-            chunks_data = data.get('chunks', [])
+            # Extract the actual document data from the wrapped message
+            # Messages from other handlers are wrapped with metadata
+            if 'result' in data and isinstance(data['result'], dict):
+                chunk_data = data['result']
+            else:
+                chunk_data = data
+            
+            # Extract request data - now processing single chunk
+            job_id = chunk_data.get('job_id', str(uuid.uuid4()))
+            url = chunk_data.get('url', 'unknown')
+            
+            # Check if this is a single chunk (new format) or batch (old format)
+            if 'chunks' in chunk_data:
+                # Old batch format - process all chunks
+                chunks_data = chunk_data.get('chunks', [])
+            else:
+                # New single chunk format - process one chunk
+                chunks_data = [chunk_data]
             
             if not chunks_data:
                 raise MessageProcessingError("No chunks provided for embedding generation")
@@ -372,7 +385,7 @@ class EmbeddingHandler(BaseHandler):
                     'source_url': chunk_data.get('source_url', ''),
                     'page_number': chunk_data.get('page_number', 1),
                     'diseases': json.dumps(chunk_data.get('diseases', [])),
-                    'processed_at': chunk_data.get('processed_at', datetime.now().isoformat()),
+                    'processed_at': chunk_data.get('processed_at', int(datetime.now().timestamp())),
                     'job_id': chunk_data.get('job_id', job_id)
                 }
                 

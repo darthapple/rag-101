@@ -1,8 +1,8 @@
 """
 Document Handler
 
-Processes document download requests, extracts text from PDFs, chunks content,
-and publishes to embeddings topic for vector generation.
+Processes document download requests and extracts text from PDFs.
+Publishes extracted text with metadata to document chunking topic.
 """
 
 import asyncio
@@ -19,8 +19,7 @@ import json
 
 import aiohttp
 import aiofiles
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
 from langchain.schema import Document as LangChainDocument
 
 from handlers.base import BaseHandler, MessageProcessingError
@@ -42,12 +41,11 @@ class DocumentProcessingError(Exception):
 
 class DocumentHandler(BaseHandler):
     """
-    Handler for document processing workflow:
+    Handler for document download and text extraction workflow:
     1. Download PDF from URL
     2. Extract text using PyPDFLoader
-    3. Chunk text using RecursiveCharacterTextSplitter
-    4. Extract metadata (title, diseases, page numbers)
-    5. Publish chunks to embeddings.create topic
+    3. Extract basic metadata (title, page info)
+    4. Publish text with metadata to documents.chunk topic
     """
     
     def __init__(self, handler_name: str = "document-handler", max_workers: int = 2, infra_manager=None):
@@ -61,45 +59,11 @@ class DocumentHandler(BaseHandler):
         super().__init__(handler_name, max_workers, infra_manager)
         
         # Document processing configuration
-        self.chunk_size = self.config.chunk_size
-        self.chunk_overlap = self.config.chunk_overlap
         self.max_file_size = self.config.max_file_size
         self.download_timeout = self.config.document_processing_timeout
         
-        # Text splitter configuration
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            length_function=len,
-            separators=[
-                "\n\n",  # Paragraph breaks
-                "\n",    # Line breaks
-                ". ",    # Sentence breaks
-                "? ",    # Question breaks
-                "! ",    # Exclamation breaks
-                "; ",    # Semicolon breaks
-                ", ",    # Comma breaks
-                " ",     # Word breaks
-                ""       # Character breaks
-            ],
-            keep_separator=True
-        )
-        
-        # Medical terms for disease extraction (basic patterns)
-        self.disease_patterns = [
-            r'\b(?:diabetes|hipertensão|câncer|cancer|tumor|doença|síndrome|distúrbio)\b',
-            r'\b(?:covid|tuberculose|hepatite|pneumonia|bronquite|asma)\b',
-            r'\b(?:depressão|ansiedade|esquizofrenia|bipolar|alzheimer|parkinson)\b',
-            r'\b(?:artrite|artrose|fibromialgia|lupus|artritis)\b',
-            r'\b(?:cardiovascular|cardíaco|coronário|infarto|avc|derrame)\b'
-        ]
-        
-        self.disease_regex = re.compile('|'.join(self.disease_patterns), re.IGNORECASE)
-        
         self.logger.info(
             "Document handler initialized",
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
             max_file_size=self.max_file_size,
             download_timeout=self.download_timeout,
             handler_name=handler_name,
@@ -113,25 +77,25 @@ class DocumentHandler(BaseHandler):
     def get_consumer_config(self) -> Dict[str, Any]:
         """Consumer configuration for document processing"""
         return {
-            'durable_name': 'document-processor',
+            'durable_name': 'document-download-worker',
             'manual_ack': True,
             'pending_msgs_limit': self.max_workers * 2,
             'ack_wait': self.download_timeout * 2  # Double timeout for ack wait
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Publish results to embeddings topic"""
-        return "embeddings.create"
+        """Publish results to document chunking topic"""
+        return "documents.chunks"
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process document download and chunking request
+        Process document download and text extraction request
         
         Args:
             data: Message data containing URL and job information
             
         Returns:
-            Dict[str, Any]: Processing result with chunks for embedding
+            Dict[str, Any]: Processing result with extracted text and metadata
             
         Raises:
             MessageProcessingError: If processing fails
@@ -161,11 +125,29 @@ class DocumentHandler(BaseHandler):
                 # Process PDF and extract text
                 documents = await self.process_pdf(file_path, url, job_id, file_info)
                 
-                # Chunk documents
-                chunks = await self.chunk_documents(documents, url, job_id)
+                # Extract document metadata
+                document_title = await self.extract_document_title(documents, metadata)
                 
-                # Extract metadata from chunks
-                processed_chunks = await self.process_chunks(chunks, url, job_id, metadata)
+                # Prepare document data for chunking
+                document_data = {
+                    'job_id': job_id,
+                    'url': url,
+                    'status': 'text_extracted',
+                    'document_title': document_title,
+                    'pages': [],
+                    'file_info': file_info,
+                    'metadata': metadata,
+                    'extracted_at': datetime.now().isoformat()
+                }
+                
+                # Add page content
+                for i, doc in enumerate(documents):
+                    page_data = {
+                        'page_number': i + 1,
+                        'text_content': doc.page_content.strip(),
+                        'metadata': doc.metadata
+                    }
+                    document_data['pages'].append(page_data)
                 
                 self.logger.log_operation(
                     "document_processing",
@@ -173,19 +155,11 @@ class DocumentHandler(BaseHandler):
                     success=True,
                     url=url,
                     job_id=job_id,
-                    chunk_count=len(processed_chunks),
+                    page_count=len(documents),
                     file_size=file_info.get('file_size', 0)
                 )
                 
-                return {
-                    'job_id': job_id,
-                    'url': url,
-                    'status': 'completed',
-                    'chunk_count': len(processed_chunks),
-                    'chunks': processed_chunks,
-                    'file_info': file_info,
-                    'processing_time': (datetime.now().isoformat())
-                }
+                return document_data
                 
             finally:
                 # Clean up temporary file
@@ -378,105 +352,11 @@ class DocumentHandler(BaseHandler):
         except Exception as e:
             raise DocumentProcessingError(f"PDF processing failed: {str(e)}")
     
-    async def chunk_documents(
-        self, 
-        documents: List[LangChainDocument], 
-        url: str, 
-        job_id: str
-    ) -> List[LangChainDocument]:
-        """
-        Chunk documents using RecursiveCharacterTextSplitter
-        
-        Args:
-            documents: LangChain documents to chunk
-            url: Source URL
-            job_id: Job identifier
-            
-        Returns:
-            List[LangChainDocument]: Chunked documents
-        """
-        try:
-            self.logger.debug(f"Chunking {len(documents)} documents")
-            
-            # Split documents into chunks
-            chunks = await asyncio.get_event_loop().run_in_executor(
-                None, self.text_splitter.split_documents, documents
-            )
-            
-            if not chunks:
-                raise DocumentProcessingError("No chunks generated from documents")
-            
-            # Add chunk-specific metadata
-            for i, chunk in enumerate(chunks):
-                chunk.metadata.update({
-                    'chunk_index': i,
-                    'total_chunks': len(chunks),
-                    'chunk_size': len(chunk.page_content),
-                    'chunk_id': f"{job_id}_{chunk.metadata.get('page_number', 0)}_{i}"
-                })
-            
-            self.logger.info(f"Generated {len(chunks)} chunks")
-            return chunks
-            
-        except Exception as e:
-            raise DocumentProcessingError(f"Document chunking failed: {str(e)}")
     
-    async def process_chunks(
-        self, 
-        chunks: List[LangChainDocument], 
-        url: str, 
-        job_id: str,
-        metadata: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """
-        Process chunks and extract metadata including diseases
-        
-        Args:
-            chunks: Chunked documents
-            url: Source URL
-            job_id: Job identifier
-            metadata: Additional metadata
-            
-        Returns:
-            List[Dict[str, Any]]: Processed chunks with metadata
-        """
-        try:
-            processed_chunks = []
-            document_title = await self.extract_document_title(chunks, metadata)
-            
-            for chunk in chunks:
-                # Extract diseases from chunk content
-                diseases = self.extract_diseases(chunk.page_content)
-                
-                # Create chunk data
-                chunk_data = {
-                    'chunk_id': chunk.metadata['chunk_id'],
-                    'text_content': chunk.page_content.strip(),
-                    'document_title': document_title,
-                    'source_url': url,
-                    'page_number': chunk.metadata.get('page_number', 1),
-                    'diseases': diseases,
-                    'processed_at': datetime.now().isoformat(),
-                    'job_id': job_id,
-                    'metadata': {
-                        'chunk_index': chunk.metadata.get('chunk_index', 0),
-                        'total_chunks': chunk.metadata.get('total_chunks', len(chunks)),
-                        'chunk_size': len(chunk.page_content),
-                        'file_size': chunk.metadata.get('file_size', 0),
-                        'total_pages': chunk.metadata.get('total_pages', 1)
-                    }
-                }
-                
-                processed_chunks.append(chunk_data)
-            
-            return processed_chunks
-            
-        except Exception as e:
-            raise DocumentProcessingError(f"Chunk processing failed: {str(e)}")
     
     async def extract_document_title(
         self, 
-        chunks: List[LangChainDocument], 
+        documents: List[LangChainDocument], 
         metadata: Dict[str, Any]
     ) -> str:
         """
@@ -494,10 +374,10 @@ class DocumentHandler(BaseHandler):
             if metadata.get('title'):
                 return metadata['title']
             
-            # Try to extract from first chunk
-            if chunks:
-                first_chunk = chunks[0].page_content.strip()
-                lines = first_chunk.split('\n')
+            # Try to extract from first document page
+            if documents:
+                first_document = documents[0].page_content.strip()
+                lines = first_document.split('\n')
                 
                 # Look for title-like content in first few lines
                 for line in lines[:5]:
@@ -508,7 +388,7 @@ class DocumentHandler(BaseHandler):
                             return line
                 
                 # Fallback: use first 100 characters
-                return first_chunk[:100].replace('\n', ' ').strip()
+                return first_document[:100].replace('\n', ' ').strip()
             
             # Final fallback
             return f"Document {datetime.now().strftime('%Y-%m-%d')}"
@@ -516,42 +396,6 @@ class DocumentHandler(BaseHandler):
         except Exception:
             return f"Document {datetime.now().strftime('%Y-%m-%d')}"
     
-    def extract_diseases(self, text: str) -> List[str]:
-        """
-        Extract medical conditions/diseases from text content
-        
-        Args:
-            text: Text content to analyze
-            
-        Returns:
-            List[str]: List of found diseases/conditions
-        """
-        try:
-            diseases = set()
-            
-            # Find matches using regex patterns
-            matches = self.disease_regex.findall(text.lower())
-            diseases.update(matches)
-            
-            # Additional pattern-based extraction
-            # Look for "doença de X" or "síndrome de X" patterns
-            syndrome_pattern = re.compile(
-                r'\b(?:doença|síndrome|distúrbio)\s+(?:de|do|da)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)*)',
-                re.IGNORECASE
-            )
-            
-            syndrome_matches = syndrome_pattern.findall(text)
-            for match in syndrome_matches:
-                diseases.add(f"síndrome de {match.strip()}")
-            
-            # Convert to sorted list and limit results
-            disease_list = sorted(list(diseases))[:10]  # Limit to 10 diseases
-            
-            return disease_list
-            
-        except Exception as e:
-            self.logger.warning(f"Disease extraction failed: {e}")
-            return []
     
     async def cleanup_file(self, file_path: str):
         """

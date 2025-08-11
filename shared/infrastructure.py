@@ -20,6 +20,7 @@ from pymilvus import connections, Collection, FieldSchema, CollectionSchema, Dat
 
 from shared.config import get_config
 from shared.logging import get_structured_logger
+from shared.nats_setup import NATSConfigurator
 
 class InfrastructureManager:
     """
@@ -167,32 +168,15 @@ class InfrastructureManager:
     
     async def ensure_jetstream_streams(self):
         """Create or verify JetStream streams for all message topics"""
+        # Use centralized NATS configuration instead of hardcoded values
+        configurator = NATSConfigurator()
         streams = [
             {
-                "name": "questions",
-                "subjects": ["questions", "questions.>"],
-                "description": "Stream for user questions"
-            },
-            {
-                "name": "answers",
-                "subjects": ["answers", "answers.>"],
-                "description": "Stream for generated answers"
-            },
-            {
-                "name": "documents",
-                "subjects": ["documents", "documents.>"],
-                "description": "Stream for document processing"
-            },
-            {
-                "name": "embeddings",
-                "subjects": ["embeddings", "embeddings.>"],
-                "description": "Stream for embedding generation"
-            },
-            {
-                "name": "system",
-                "subjects": ["system", "system.>"],
-                "description": "Stream for system metrics and events"
+                "name": stream_config["name"],
+                "subjects": stream_config["subjects"],
+                "description": stream_config["description"]
             }
+            for stream_config in configurator.streams.values()
         ]
         
         for stream_def in streams:
@@ -265,38 +249,52 @@ class InfrastructureManager:
         )
     
     async def ensure_kv_buckets(self):
-        """Create or verify KV buckets for session storage"""
-        try:
-            # Check if bucket exists
+        """Create or verify KV buckets using centralized configuration"""
+        # Use centralized NATS configuration instead of hardcoded values
+        configurator = NATSConfigurator()
+        
+        for kv_name, kv_config in configurator.kv_stores.items():
             try:
-                self.sessions_kv = await self.js.key_value("sessions")
-                status = await self.sessions_kv.status()
-                self.logger.debug(
-                    "Connected to existing KV bucket: sessions",
-                    values=status.values
-                )
-            except nats.js.errors.BucketNotFoundError:
-                # Create sessions KV bucket
-                kv_config = KeyValueConfig(
-                    bucket="sessions",
-                    description="Session storage for RAG-101",
-                    ttl=self.config.session_ttl,
-                    max_value_size=10240  # 10KB max per session
-                )
-                
-                self.sessions_kv = await self.js.create_key_value(kv_config)
-                self.logger.info(
-                    f"Created KV bucket: sessions",
-                    ttl=self.config.session_ttl,
+                # Check if bucket exists
+                try:
+                    kv_store = await self.js.key_value(kv_config["bucket"])
+                    status = await kv_store.status()
+                    self.logger.debug(
+                        f"Connected to existing KV bucket: {kv_config['bucket']}",
+                        values=getattr(status, 'values', 0)
+                    )
+                    
+                    # Store sessions KV reference for compatibility
+                    if kv_config["bucket"] == "sessions":
+                        self.sessions_kv = kv_store
+                        
+                except nats.js.errors.BucketNotFoundError:
+                    # Create KV bucket using centralized config
+                    bucket_config = KeyValueConfig(
+                        bucket=kv_config["bucket"],
+                        description=kv_config.get("description", ""),
+                        ttl=kv_config.get("ttl").total_seconds() if kv_config.get("ttl") else self.config.session_ttl,
+                        max_value_size=kv_config.get("max_value_size", 10240)
+                    )
+                    
+                    kv_store = await self.js.create_key_value(bucket_config)
+                    self.logger.info(
+                        f"Created KV bucket: {kv_config['bucket']}",
+                        description=kv_config.get("description", ""),
+                        ttl=kv_config.get("ttl"),
+                        service_name=self.service_name
+                    )
+                    
+                    # Store sessions KV reference for compatibility
+                    if kv_config["bucket"] == "sessions":
+                        self.sessions_kv = kv_store
+                        
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to ensure KV bucket: {kv_config.get('bucket', kv_name)}",
+                    error=e,
                     service_name=self.service_name
                 )
-                
-        except Exception as e:
-            self.logger.error(
-                "Failed to ensure sessions KV bucket",
-                error=e,
-                service_name=self.service_name
-            )
     
     async def init_milvus(self):
         """Initialize Milvus connection and create collection"""

@@ -72,10 +72,11 @@ class NATSClient:
         
         # Topic configuration
         self.topics = {
-            'questions': 'questions',
-            'answers': 'answers',
+            'questions': 'chat.questions',
+            'answers': 'chat.answers',
             'documents': 'documents.download',
-            'embeddings': 'embeddings.create',
+            'chunks': 'documents.chunks',
+            'embeddings': 'documents.embeddings',
             'metrics': 'system.metrics'
         }
     

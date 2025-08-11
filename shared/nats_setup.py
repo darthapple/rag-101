@@ -49,51 +49,62 @@ class NATSConfigurator:
         
         # Stream configurations
         self.streams = {
-            'questions': {
-                'name': 'questions',
-                'subjects': ['questions', 'questions.>'],
-                'description': 'User questions for processing',
+            'documents_download': {
+                'name': 'documents_download',
+                'subjects': ['documents.download'],
+                'description': 'PDF document download requests',
                 'max_age': timedelta(hours=1),
-                'max_msgs': 10000,
+                'max_msgs': 5000,
                 'storage': StorageType.MEMORY,
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD,
                 'duplicate_window': timedelta(minutes=1)
             },
-            'documents': {
-                'name': 'documents',
-                'subjects': ['documents.download', 'documents.process', 'documents.status'],
-                'description': 'Document processing requests and status',
+            'documents_chunks': {
+                'name': 'documents_chunks',
+                'subjects': ['documents.chunks'],
+                'description': 'Document text chunking requests',
                 'max_age': timedelta(hours=1),
-                'max_msgs': 5000,
+                'max_msgs': 10000,
                 'storage': StorageType.MEMORY,
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'embeddings': {
-                'name': 'embeddings',
-                'subjects': ['embeddings.create', 'embeddings.status', 'embeddings.complete'],
-                'description': 'Embedding generation tasks',
+            'documents_embeddings': {
+                'name': 'documents_embeddings',
+                'subjects': ['documents.embeddings'],
+                'description': 'Document chunk embedding generation',
                 'max_age': timedelta(hours=1),
                 'max_msgs': 50000,
                 'storage': StorageType.MEMORY,
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'answers': {
-                'name': 'answers',
-                'subjects': ['answers.*'],
+            'chat_questions': {
+                'name': 'chat_questions',
+                'subjects': ['chat.questions'],
+                'description': 'User questions for processing',
+                'max_age': timedelta(hours=1),
+                'max_msgs': 20000,
+                'storage': StorageType.MEMORY,
+                'retention': RetentionPolicy.LIMITS,
+                'discard': DiscardPolicy.OLD,
+                'duplicate_window': timedelta(minutes=1)
+            },
+            'chat_answers': {
+                'name': 'chat_answers',
+                'subjects': ['chat.answers.*'],
                 'description': 'Session-specific answer delivery',
                 'max_age': timedelta(hours=1),
-                'max_msgs': 10000,
+                'max_msgs': 20000,
                 'storage': StorageType.MEMORY,
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'system': {
-                'name': 'system',
-                'subjects': ['system.metrics', 'system.health', 'system.events'],
-                'description': 'System monitoring and metrics',
+            'system_metrics': {
+                'name': 'system_metrics',
+                'subjects': ['system.metrics'],
+                'description': 'System monitoring and performance metrics',
                 'max_age': timedelta(minutes=30),
                 'max_msgs': 100000,
                 'storage': StorageType.MEMORY,
@@ -104,32 +115,32 @@ class NATSConfigurator:
         
         # Consumer configurations
         self.consumers = {
-            'question-worker': {
-                'stream': 'questions',
-                'durable_name': 'question-worker',
-                'filter_subject': 'questions',
-                'deliver_policy': DeliverPolicy.ALL,
-                'ack_policy': AckPolicy.EXPLICIT,
-                'max_deliver': 3,
-                'ack_wait': timedelta(seconds=30),
-                'max_ack_pending': 100,
-                'description': 'Worker consumer for processing questions'
-            },
-            'document-worker': {
-                'stream': 'documents',
-                'durable_name': 'document-worker',
+            'document-download-worker': {
+                'stream': 'documents_download',
+                'durable_name': 'document-download-worker',
                 'filter_subject': 'documents.download',
                 'deliver_policy': DeliverPolicy.ALL,
                 'ack_policy': AckPolicy.EXPLICIT,
                 'max_deliver': 3,
                 'ack_wait': timedelta(minutes=5),
                 'max_ack_pending': 10,
-                'description': 'Worker consumer for document processing'
+                'description': 'Worker consumer for document download processing'
             },
-            'embedding-worker': {
-                'stream': 'embeddings',
-                'durable_name': 'embedding-worker',
-                'filter_subject': 'embeddings.create',
+            'document-chunk-worker': {
+                'stream': 'documents_chunks',
+                'durable_name': 'document-chunk-worker',
+                'filter_subject': 'documents.chunks',
+                'deliver_policy': DeliverPolicy.ALL,
+                'ack_policy': AckPolicy.EXPLICIT,
+                'max_deliver': 3,
+                'ack_wait': timedelta(minutes=2),
+                'max_ack_pending': 20,
+                'description': 'Worker consumer for document chunking'
+            },
+            'document-embedding-worker': {
+                'stream': 'documents_embeddings',
+                'durable_name': 'document-embedding-worker',
+                'filter_subject': 'documents.embeddings',
                 'deliver_policy': DeliverPolicy.ALL,
                 'ack_policy': AckPolicy.EXPLICIT,
                 'max_deliver': 3,
@@ -137,18 +148,29 @@ class NATSConfigurator:
                 'max_ack_pending': 50,
                 'description': 'Worker consumer for embedding generation'
             },
-            'answer-monitor': {
-                'stream': 'answers',
-                'durable_name': 'answer-monitor',
-                'filter_subject': 'answers.>',
+            'chat-question-worker': {
+                'stream': 'chat_questions',
+                'durable_name': 'chat-question-worker',
+                'filter_subject': 'chat.questions',
+                'deliver_policy': DeliverPolicy.ALL,
+                'ack_policy': AckPolicy.EXPLICIT,
+                'max_deliver': 3,
+                'ack_wait': timedelta(seconds=30),
+                'max_ack_pending': 100,
+                'description': 'Worker consumer for processing chat questions'
+            },
+            'chat-answer-monitor': {
+                'stream': 'chat_answers',
+                'durable_name': 'chat-answer-monitor',
+                'filter_subject': 'chat.answers.>',
                 'deliver_policy': DeliverPolicy.NEW,
                 'ack_policy': AckPolicy.NONE,
                 'max_deliver': 1,
-                'description': 'Monitor consumer for answer tracking'
+                'description': 'Monitor consumer for chat answer tracking'
             },
-            'metrics-collector': {
-                'stream': 'system',
-                'durable_name': 'metrics-collector',
+            'system-metrics-collector': {
+                'stream': 'system_metrics',
+                'durable_name': 'system-metrics-collector',
                 'filter_subject': 'system.metrics',
                 'deliver_policy': DeliverPolicy.NEW,
                 'ack_policy': AckPolicy.NONE,

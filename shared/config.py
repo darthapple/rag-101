@@ -108,7 +108,7 @@ class BaseConfig(BaseSettings):
         return self.environment == 'testing'
 
 
-class HealthCheckConfig:
+class HealthCheckConfig(BaseSettings):
     """Health check and monitoring configuration"""
     
     # Health check settings
@@ -316,7 +316,7 @@ def get_env_int(env_var: str, default: int = 0, min_val: int = None, max_val: in
 
 # Service-Specific Configuration Classes
 
-class NATSConfig:
+class NATSConfig(BaseSettings):
     """NATS messaging configuration"""
     
     # Connection settings
@@ -459,7 +459,7 @@ class NATSConfig:
         return v
 
 
-class MilvusConfig:
+class MilvusConfig(BaseSettings):
     """Milvus vector database configuration"""
     
     # Connection settings
@@ -558,11 +558,18 @@ class MilvusConfig:
         return v
 
 
-class GeminiConfig:
+class GeminiConfig(BaseSettings):
     """Google Gemini API configuration"""
     
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore"
+    }
+    
     # API settings
-    google_api_key: Optional[str] = Field(
+    gemini_api_key: Optional[str] = Field(
         default=None,
         env="GEMINI_API_KEY",
         description="Google Gemini API key"
@@ -640,7 +647,7 @@ class GeminiConfig:
         description="Request timeout in seconds"
     )
     
-    @field_validator('google_api_key')
+    @field_validator('gemini_api_key')
     @classmethod
     def validate_api_key(cls, v):
         """Validate API key format"""
@@ -649,7 +656,7 @@ class GeminiConfig:
         return v
 
 
-class WorkerConfig:
+class WorkerConfig(BaseSettings):
     """Worker service configuration"""
     
     # Concurrency settings
@@ -736,6 +743,15 @@ class WorkerConfig:
         description="Embedding generation timeout in seconds"
     )
     
+    # Handler-specific processing timeouts
+    embedding_handler_timeout: float = Field(
+        default=300.0,  # 5 minutes for large documents
+        env="EMBEDDING_HANDLER_TIMEOUT",
+        ge=60.0,
+        le=1800.0,
+        description="Embedding handler processing timeout in seconds"
+    )
+    
     question_timeout: float = Field(
         default=60.0,
         env="QUESTION_TIMEOUT",
@@ -745,7 +761,7 @@ class WorkerConfig:
     )
 
 
-class APIConfig:
+class APIConfig(BaseSettings):
     """API service configuration"""
     
     # Server settings
@@ -849,7 +865,7 @@ class APIConfig:
     )
 
 
-class UIConfig:
+class UIConfig(BaseSettings):
     """UI service configuration"""
     
     # Streamlit settings
@@ -929,8 +945,10 @@ class AppConfig(
     
     def __init__(self, **kwargs):
         """Initialize configuration with validation"""
-        # Load .env file before initialization
-        load_dotenv_file()
+        # Load .env file from project root before initialization
+        project_root = get_project_root()
+        env_file_path = project_root / ".env"
+        load_dotenv_file(env_file_path)
         
         super().__init__(**kwargs)
         
@@ -944,8 +962,9 @@ class AppConfig(
         """Validate the complete configuration"""
         validation_errors = []
         
+        
         # Check required API key for Gemini
-        if not self.google_api_key:
+        if not self.gemini_api_key:
             validation_errors.append("GEMINI_API_KEY is required for AI functionality")
         
         # Validate TTL consistency
@@ -1011,7 +1030,7 @@ class AppConfig(
     def get_gemini_config(self) -> dict:
         """Get Gemini-specific configuration as dictionary"""
         return {
-            'api_key': self.google_api_key,
+            'api_key': self.gemini_api_key,
             'embedding_model': self.embedding_model,
             'chat_model': self.chat_model,
             'max_tokens': self.max_tokens,
@@ -1036,6 +1055,7 @@ class AppConfig(
             'retry_delay': self.retry_delay,
             'document_processing_timeout': self.document_processing_timeout,
             'embedding_timeout': self.embedding_timeout,
+            'embedding_handler_timeout': self.embedding_handler_timeout,
             'question_timeout': self.question_timeout
         }
     

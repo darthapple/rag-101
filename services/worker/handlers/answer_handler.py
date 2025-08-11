@@ -43,7 +43,7 @@ class AnswerGenerationError(Exception):
 class AnswerHandler(BaseHandler):
     """
     Handler for Q&A processing using RAG pipeline:
-    1. Consumes questions from 'questions' topic
+    1. Consumes questions from 'chat.questions' topic
     2. Generates embedding for the question
     3. Searches Milvus for relevant document chunks
     4. Constructs context from retrieved documents
@@ -111,16 +111,16 @@ RESPOSTA:""",
     def _setup_gemini_clients(self):
         """Setup Google Gemini API clients"""
         try:
-            if not self.config.google_api_key:
-                raise AnswerGenerationError("GOOGLE_API_KEY not configured")
+            if not self.config.gemini_api_key:
+                raise AnswerGenerationError("GEMINI_API_KEY not configured")
             
             # Configure Gemini API
-            genai.configure(api_key=self.config.google_api_key)
+            genai.configure(api_key=self.config.gemini_api_key)
             
             # Initialize embeddings client for question embedding
             self.embeddings_client = GoogleGenerativeAIEmbeddings(
                 model=self.embedding_model,
-                google_api_key=self.config.google_api_key,
+                google_api_key=self.config.gemini_api_key,
                 task_type="retrieval_query",  # Optimized for search queries
                 title="Medical Question Embedding"
             )
@@ -128,7 +128,7 @@ RESPOSTA:""",
             # Initialize chat client for answer generation
             self.chat_client = ChatGoogleGenerativeAI(
                 model=self.chat_model,
-                google_api_key=self.config.google_api_key,
+                google_api_key=self.config.gemini_api_key,
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 top_p=self.config.top_p,
@@ -143,12 +143,12 @@ RESPOSTA:""",
     
     def get_subscription_subject(self) -> str:
         """Subscribe to questions topic"""
-        return "questions"
+        return "chat.questions"
     
     def get_consumer_config(self) -> Dict[str, Any]:
         """Consumer configuration for question processing"""
         return {
-            'durable_name': 'question-processor',
+            'durable_name': 'chat-question-worker',
             'manual_ack': True,
             'pending_msgs_limit': self.max_workers * 3,
             'ack_wait': self.question_timeout * 2
@@ -158,7 +158,7 @@ RESPOSTA:""",
         """Publish answers to session-specific topics"""
         session_id = data.get('session_id')
         if session_id:
-            return f"answers.{session_id}"
+            return f"chat.answers.{session_id}"
         return None
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:

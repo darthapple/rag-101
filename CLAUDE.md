@@ -35,7 +35,7 @@ The system implements an **ephemeral/vector architecture** with two main data la
 docker-compose up -d
 
 # 2. Set up environment
-export GOOGLE_API_KEY=your_api_key_here
+export GEMINI_API_KEY=your_api_key_here
 export MILVUS_HOST=localhost
 export MILVUS_PORT=19530
 export NATS_URL=nats://localhost:4222
@@ -49,8 +49,8 @@ poetry run python main.py  # or appropriate start command
 
 ### Full Production Deployment
 ```bash
-# Create .env file with GOOGLE_API_KEY
-echo "GOOGLE_API_KEY=your_key_here" > .env
+# Create .env file with GEMINI_API_KEY
+echo "GEMINI_API_KEY=your_key_here" > .env
 
 # Deploy all services
 docker-compose -f docker-compose.yml -f docker-compose.services.yml up --build
@@ -110,7 +110,7 @@ poetry run pytest --cov=services   # With coverage
 
 ### Required Environment Variables
 ```bash
-GOOGLE_API_KEY=your_gemini_api_key     # Required for AI functionality
+GEMINI_API_KEY=your_gemini_api_key     # Required for AI functionality
 NATS_URL=nats://localhost:4222         # Message broker connection
 MILVUS_HOST=localhost                  # Vector database host
 MILVUS_PORT=19530                      # Vector database port

@@ -498,9 +498,9 @@ class WebSocketConnectionManager:
             # Get JetStream context
             js = self.nats_client.jetstream()
             
-            # Subscribe to answers.* wildcard pattern
+            # Subscribe to chat.answers.* wildcard pattern
             self.nats_subscription = await js.subscribe(
-                "answers.*",
+                "chat.answers.*",
                 cb=self._handle_nats_message,
                 config=ConsumerConfig(
                     durable_name="websocket-router",
@@ -519,13 +519,13 @@ class WebSocketConnectionManager:
     async def _handle_nats_message(self, msg):
         """Handle incoming NATS messages for routing"""
         try:
-            # Extract session ID from subject (answers.{session_id})
+            # Extract session ID from subject (chat.answers.{session_id})
             subject_parts = msg.subject.split('.')
-            if len(subject_parts) != 2 or subject_parts[0] != 'answers':
+            if len(subject_parts) != 3 or subject_parts[0] != 'chat' or subject_parts[1] != 'answers':
                 await msg.ack()
                 return
             
-            session_id = subject_parts[1]
+            session_id = subject_parts[2]
             
             # Parse message data
             try:

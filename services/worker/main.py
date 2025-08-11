@@ -27,6 +27,7 @@ from handlers.base import WorkerPool, BaseHandler
 
 # Import specific handlers
 from handlers.document_handler import DocumentHandler
+from handlers.chunk_handler import ChunkHandler
 from handlers.embedding_handler import EmbeddingHandler
 from handlers.answer_handler import AnswerHandler
 
@@ -71,6 +72,14 @@ class WorkerService:
             infra_manager=self.infra_manager
         )
         self.pool.add_handler(document_handler)
+        
+        # Chunk processing handler
+        chunk_handler = ChunkHandler(
+            handler_name="chunk-processor",
+            max_workers=self.config.max_document_workers,  # Use same limit as document workers
+            infra_manager=self.infra_manager
+        )
+        self.pool.add_handler(chunk_handler)
         
         # Embedding generation handler
         embedding_handler = EmbeddingHandler(
