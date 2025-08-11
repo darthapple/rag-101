@@ -14,19 +14,19 @@ RUN apt-get update && apt-get install -y \
 # Install Poetry
 RUN pip install poetry==1.7.1
 
-# Configure Poetry
+# Configure Poetry  
 ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VENV_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_CACHE_DIR=/opt/poetry-cache
 
 # Set working directory
 WORKDIR /app
 
 # Copy Poetry configuration files
-COPY pyproject.toml poetry.lock ./
+COPY services/worker/pyproject.toml services/worker/poetry.lock ./
 
 # Install dependencies
-RUN poetry install --only=main && rm -rf $POETRY_CACHE_DIR
+RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
 
 # Production stage
 FROM python:3.11-slim as production
@@ -47,10 +47,13 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 
 # Copy project root shared modules (required for imports)
-COPY --chown=worker:worker ../../shared /app/shared
+COPY --chown=worker:worker shared /app/shared
 
 # Copy application code
-COPY --chown=worker:worker . /app/services/worker
+COPY --chown=worker:worker services/worker /app/services/worker
+
+# Ensure health check script is executable
+RUN chmod +x /app/services/worker/health_check.py || true
 
 # Set working directory to worker service
 WORKDIR /app/services/worker
