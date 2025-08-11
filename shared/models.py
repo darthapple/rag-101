@@ -50,7 +50,7 @@ class Session(BaseModel):
     status: SessionStatus = Field(default=SessionStatus.ACTIVE, description="Current session status")
     last_activity: Optional[datetime] = Field(None, description="Last activity timestamp")
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_expiration(cls, values):
         """Ensure expires_at is after created_at"""
         created_at = values.get('created_at')
@@ -120,7 +120,7 @@ class SessionResponse(BaseModel):
     expires_at: datetime = Field(..., description="Expiration timestamp")
     time_remaining: Optional[int] = Field(None, description="Seconds until expiration")
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def calculate_time_remaining(cls, values):
         """Calculate remaining time for active sessions"""
         expires_at = values.get('expires_at')

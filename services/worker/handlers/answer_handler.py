@@ -51,15 +51,16 @@ class AnswerHandler(BaseHandler):
     6. Publishes to session-specific answer topics
     """
     
-    def __init__(self, handler_name: str = "answer-handler", max_workers: int = 2):
+    def __init__(self, handler_name: str = "answer-handler", max_workers: int = 2, infra_manager=None):
         """
         Initialize answer handler
         
         Args:
             handler_name: Handler identifier
             max_workers: Maximum concurrent workers
+            infra_manager: Optional InfrastructureManager instance
         """
-        super().__init__(handler_name, max_workers)
+        super().__init__(handler_name, max_workers, infra_manager)
         
         # Configuration
         self.question_timeout = self.config.question_timeout

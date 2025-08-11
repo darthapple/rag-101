@@ -50,7 +50,7 @@ class DocumentHandler(BaseHandler):
     5. Publish chunks to embeddings.create topic
     """
     
-    def __init__(self, handler_name: str = "document-handler", max_workers: int = 2):
+    def __init__(self, handler_name: str = "document-handler", max_workers: int = 2, infra_manager=None):
         """
         Initialize document handler
         
@@ -58,7 +58,7 @@ class DocumentHandler(BaseHandler):
             handler_name: Handler identifier
             max_workers: Maximum concurrent workers
         """
-        super().__init__(handler_name, max_workers)
+        super().__init__(handler_name, max_workers, infra_manager)
         
         # Document processing configuration
         self.chunk_size = self.config.chunk_size

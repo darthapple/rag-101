@@ -52,17 +52,19 @@ class BaseHandler(ABC):
     and lifecycle management. Each handler type inherits from this class.
     """
     
-    def __init__(self, handler_name: str, max_workers: int = 2):
+    def __init__(self, handler_name: str, max_workers: int = 2, infra_manager=None):
         """
         Initialize base handler
         
         Args:
             handler_name: Unique name for this handler type
             max_workers: Maximum number of concurrent workers
+            infra_manager: Optional InfrastructureManager instance to reuse connections
         """
         self.handler_name = handler_name
         self.max_workers = max_workers
         self.config = get_config()
+        self.infra_manager = infra_manager
         
         # Connection state
         self.nc: Optional[nats.NATS] = None
@@ -132,11 +134,25 @@ class BaseHandler(ABC):
     
     async def connect(self) -> bool:
         """
-        Connect to NATS server with comprehensive error handling and retry logic
+        Connect to NATS server with comprehensive error handling and retry logic.
+        Uses shared infrastructure manager connection if available.
         
         Returns:
             bool: True if connection successful
         """
+        # Try to reuse connection from infrastructure manager
+        if self.infra_manager and self.infra_manager.nc and not self.infra_manager.nc.is_closed:
+            self.nc = self.infra_manager.nc
+            self.js = self.infra_manager.js
+            
+            self.logger.info(
+                "Reusing NATS connection from infrastructure manager",
+                handler_name=self.handler_name,
+                nats_url=self.config.nats_url
+            )
+            return True
+        
+        # Fall back to creating own connection
         max_retries = 3
         retry_delay = 2.0
         

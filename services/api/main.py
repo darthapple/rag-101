@@ -28,7 +28,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from simple_config import get_config
-from infrastructure import InfrastructureManager
+from shared.infrastructure import InfrastructureManager
 
 # Import routers
 from routers import documents, sessions, questions, health, websocket
@@ -49,8 +49,8 @@ async def lifespan(app: FastAPI):
     # Startup
     try:
         # Create and initialize infrastructure manager
-        infra_manager = InfrastructureManager(config)
-        await infra_manager.initialize_all()
+        infra_manager = InfrastructureManager(config, service_name="api")
+        await infra_manager.initialize_all(require_all=False)
         
     except Exception as e:
         print(f"Warning: Infrastructure initialization failed: {e}")

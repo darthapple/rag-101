@@ -21,6 +21,7 @@ sys.path.append(str(project_root))
 
 from shared.config import get_config
 from shared.logging import setup_logging, get_structured_logger
+from shared.infrastructure import InfrastructureManager
 from handlers.base import WorkerPool, BaseHandler
 
 
@@ -42,6 +43,7 @@ class WorkerService:
         self.pool = WorkerPool()
         self.start_time = datetime.now()
         self.logger = get_structured_logger("worker.service", "rag-worker")
+        self.infra_manager = None
         
         # Service metadata
         self.service_info = {
@@ -65,21 +67,24 @@ class WorkerService:
         # Document processing handler
         document_handler = DocumentHandler(
             handler_name="document-processor",
-            max_workers=self.config.max_document_workers
+            max_workers=self.config.max_document_workers,
+            infra_manager=self.infra_manager
         )
         self.pool.add_handler(document_handler)
         
         # Embedding generation handler
         embedding_handler = EmbeddingHandler(
             handler_name="embedding-generator", 
-            max_workers=self.config.max_embedding_workers
+            max_workers=self.config.max_embedding_workers,
+            infra_manager=self.infra_manager
         )
         self.pool.add_handler(embedding_handler)
         
         # Question processing handler
         answer_handler = AnswerHandler(
             handler_name="question-processor",
-            max_workers=self.config.max_question_workers
+            max_workers=self.config.max_question_workers,
+            infra_manager=self.infra_manager
         )
         self.pool.add_handler(answer_handler)
         
@@ -110,6 +115,25 @@ class WorkerService:
         )
         
         try:
+            # Initialize infrastructure (NATS streams, Milvus collections)
+            self.logger.info("Verifying infrastructure components...")
+            self.infra_manager = InfrastructureManager(self.config, service_name="worker")
+            
+            # Initialize with partial failure allowed (worker can run with degraded functionality)
+            infra_success = await self.infra_manager.initialize_all(require_all=False)
+            
+            if not infra_success:
+                self.logger.warning(
+                    "Infrastructure initialization partially failed",
+                    status=self.infra_manager.get_status()
+                )
+                # Continue anyway - workers might still function partially
+            else:
+                self.logger.info(
+                    "Infrastructure verification complete",
+                    status=self.infra_manager.get_status()
+                )
+            
             # Setup handlers
             self.setup_handlers()
             
@@ -164,6 +188,10 @@ class WorkerService:
             # Stop handler pool
             await self.pool.stop_all()
             
+            # Cleanup infrastructure connections
+            if self.infra_manager:
+                await self.infra_manager.cleanup()
+            
             # Log shutdown summary
             uptime = datetime.now() - self.start_time
             stats = self.pool.get_stats()
@@ -191,6 +219,7 @@ class WorkerService:
 ║ Configuration:                                                               ║
 ║   NATS URL: {self.config.nats_url:<60} ║
 ║   Milvus: {self.config.milvus_host}:{self.config.milvus_port:<53} ║
+║   Infrastructure: {'Verified' if self.infra_manager else 'Not Verified':<61} ║
 ║   Document Workers: {self.config.max_document_workers:<54} ║
 ║   Embedding Workers: {self.config.max_embedding_workers:<53} ║
 ║   Question Workers: {self.config.max_question_workers:<55} ║
@@ -209,13 +238,19 @@ class WorkerService:
         uptime = datetime.now() - self.start_time
         stats = self.pool.get_stats()
         
-        return {
+        health_status = {
             'status': 'healthy' if self.pool.is_running else 'stopped',
             'service_info': self.service_info,
             'uptime': uptime.total_seconds(),
             'handlers': stats,
             'timestamp': datetime.now().isoformat()
         }
+        
+        # Add infrastructure status if available
+        if self.infra_manager:
+            health_status['infrastructure'] = self.infra_manager.get_status()
+        
+        return health_status
 
 
 class DummyHandler(BaseHandler):
