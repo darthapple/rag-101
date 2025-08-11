@@ -22,6 +22,10 @@ import nats
 from nats.aio.client import Client as NATS
 from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
+# FastAPI/Starlette WebSocket support
+from starlette.websockets import WebSocket, WebSocketState
+from fastapi import WebSocket as FastAPIWebSocket
+
 from .config import get_config
 
 
@@ -39,7 +43,7 @@ class ConnectionState(Enum):
 class WebSocketConnection:
     """Represents a WebSocket connection with metadata"""
     connection_id: str
-    websocket: WebSocketServerProtocol
+    websocket: Any  # Can be WebSocketServerProtocol or FastAPI WebSocket
     session_id: Optional[str] = None
     state: ConnectionState = ConnectionState.CONNECTING
     connected_at: datetime = field(default_factory=datetime.now)
@@ -49,10 +53,26 @@ class WebSocketConnection:
     
     def is_alive(self) -> bool:
         """Check if connection is alive and healthy"""
-        return (
-            self.state in [ConnectionState.CONNECTED, ConnectionState.AUTHENTICATED] and
-            not self.websocket.closed
-        )
+        # Check our internal state first
+        if self.state not in [ConnectionState.CONNECTED, ConnectionState.AUTHENTICATED]:
+            return False
+        
+        # Check WebSocket connection state
+        try:
+            # FastAPI/Starlette WebSocket
+            if hasattr(self.websocket, 'application_state') or hasattr(self.websocket, 'client_state'):
+                return (
+                    getattr(self.websocket, 'client_state', WebSocketState.DISCONNECTED) == WebSocketState.CONNECTED and
+                    getattr(self.websocket, 'application_state', WebSocketState.DISCONNECTED) == WebSocketState.CONNECTED
+                )
+            # Standard WebSocket (websockets library)
+            elif hasattr(self.websocket, 'closed'):
+                return not self.websocket.closed
+            # Fallback - assume alive if we have a websocket object
+            else:
+                return self.websocket is not None
+        except Exception:
+            return False
     
     def update_activity(self):
         """Update last activity timestamp"""
@@ -196,7 +216,7 @@ class WebSocketConnectionManager:
     
     async def register_connection(
         self, 
-        websocket: WebSocketServerProtocol,
+        websocket: Any,  # Can be FastAPI WebSocket or WebSocketServerProtocol
         session_id: Optional[str] = None
     ) -> str:
         """
@@ -360,7 +380,6 @@ class WebSocketConnectionManager:
                 return 0
             
             # Prepare message
-            message_text = json.dumps(message)
             successful_deliveries = 0
             failed_connections = []
             
@@ -372,7 +391,17 @@ class WebSocketConnectionManager:
                         failed_connections.append(connection_id)
                         continue
                     
-                    await connection.websocket.send(message_text)
+                    # Send message using appropriate method for WebSocket type
+                    if hasattr(connection.websocket, 'send_json'):
+                        # FastAPI/Starlette WebSocket - use send_json for cleaner handling
+                        await connection.websocket.send_json(message)
+                    elif hasattr(connection.websocket, 'send_text'):
+                        # FastAPI/Starlette WebSocket - fallback to send_text
+                        await connection.websocket.send_text(json.dumps(message))
+                    else:
+                        # Standard WebSocket (websockets library) - use send
+                        await connection.websocket.send(json.dumps(message))
+                    
                     connection.update_activity()
                     successful_deliveries += 1
                     
@@ -423,8 +452,17 @@ class WebSocketConnectionManager:
             if not connection or not connection.is_alive():
                 return False
             
-            message_text = json.dumps(message)
-            await connection.websocket.send(message_text)
+            # Send message using appropriate method for WebSocket type
+            if hasattr(connection.websocket, 'send_json'):
+                # FastAPI/Starlette WebSocket - use send_json for cleaner handling
+                await connection.websocket.send_json(message)
+            elif hasattr(connection.websocket, 'send_text'):
+                # FastAPI/Starlette WebSocket - fallback to send_text
+                await connection.websocket.send_text(json.dumps(message))
+            else:
+                # Standard WebSocket (websockets library) - use send
+                await connection.websocket.send(json.dumps(message))
+            
             connection.update_activity()
             
             self.stats['messages_sent'] += 1

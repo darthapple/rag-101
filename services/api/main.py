@@ -33,6 +33,9 @@ from shared.infrastructure import InfrastructureManager
 # Import routers
 from routers import documents, sessions, questions, health, websocket
 
+# Import WebSocket manager
+from shared.websocket_manager import get_websocket_manager
+
 # Initialize configuration
 config = get_config()
 
@@ -52,6 +55,14 @@ async def lifespan(app: FastAPI):
         infra_manager = InfrastructureManager(config, service_name="api")
         await infra_manager.initialize_all(require_all=False)
         
+        # Initialize WebSocket manager
+        websocket_manager = get_websocket_manager()
+        websocket_started = await websocket_manager.start()
+        if websocket_started:
+            print("✅ WebSocket manager initialized successfully")
+        else:
+            print("⚠️ WebSocket manager initialization failed - real-time features may not work")
+        
     except Exception as e:
         print(f"Warning: Infrastructure initialization failed: {e}")
         print("Running in degraded mode - some features may not work")
@@ -59,6 +70,14 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    try:
+        # Stop WebSocket manager
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.stop()
+        print("WebSocket manager stopped")
+    except Exception as e:
+        print(f"Error stopping WebSocket manager: {e}")
+    
     if infra_manager:
         await infra_manager.cleanup()
 
