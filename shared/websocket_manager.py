@@ -22,9 +22,17 @@ import nats
 from nats.aio.client import Client as NATS
 from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
-# FastAPI/Starlette WebSocket support
-from starlette.websockets import WebSocket, WebSocketState
-from fastapi import WebSocket as FastAPIWebSocket
+# FastAPI/Starlette WebSocket support (optional - only needed for API service)
+try:
+    from starlette.websockets import WebSocket, WebSocketState
+    from fastapi import WebSocket as FastAPIWebSocket
+    HAS_STARLETTE = True
+except ImportError:
+    # Worker service doesn't need FastAPI/Starlette dependencies
+    WebSocket = None
+    WebSocketState = None
+    FastAPIWebSocket = None
+    HAS_STARLETTE = False
 
 from .config import get_config
 
@@ -59,8 +67,8 @@ class WebSocketConnection:
         
         # Check WebSocket connection state
         try:
-            # FastAPI/Starlette WebSocket
-            if hasattr(self.websocket, 'application_state') or hasattr(self.websocket, 'client_state'):
+            # FastAPI/Starlette WebSocket (only if Starlette is available)
+            if HAS_STARLETTE and (hasattr(self.websocket, 'application_state') or hasattr(self.websocket, 'client_state')):
                 return (
                     getattr(self.websocket, 'client_state', WebSocketState.DISCONNECTED) == WebSocketState.CONNECTED and
                     getattr(self.websocket, 'application_state', WebSocketState.DISCONNECTED) == WebSocketState.CONNECTED
