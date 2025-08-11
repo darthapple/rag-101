@@ -1,0 +1,74 @@
+{
+  "total_tests": 10,
+  "passed_tests": 7,
+  "failed_tests": 3,
+  "success_rate": 70.0,
+  "results": {
+    "Health Check": {
+      "success": true,
+      "details": "Status: healthy, NATS: True, Milvus: True",
+      "duration": 0.035008907318115234,
+      "timestamp": "2025-08-11T20:23:32.970660"
+    },
+    "Root Endpoint": {
+      "success": true,
+      "details": "Version: 0.1.0",
+      "duration": 0.0019659996032714844,
+      "timestamp": "2025-08-11T20:23:32.972723"
+    },
+    "Session Creation": {
+      "success": true,
+      "details": "Created session cf883f2d... for 'Test User API'",
+      "duration": 0.020489931106567383,
+      "timestamp": "2025-08-11T20:23:32.993383"
+    },
+    "Session Retrieval": {
+      "success": true,
+      "details": "Retrieved session cf883f2d..., active: True",
+      "duration": 0.002852201461791992,
+      "timestamp": "2025-08-11T20:23:32.996333"
+    },
+    "Session Validation": {
+      "success": true,
+      "details": "Session cf883f2d... valid: True",
+      "duration": 0.0025930404663085938,
+      "timestamp": "2025-08-11T20:23:32.999012"
+    },
+    "Document Upload": {
+      "success": true,
+      "details": "Submitted 1 URL(s) for processing",
+      "duration": 0.007746219635009766,
+      "timestamp": "2025-08-11T20:23:33.006957"
+    },
+    "Question Submission": {
+      "success": true,
+      "details": "Question ID: 954ca67c-d8a6-42a0-9b39-56cffc0d48b5, Status: submitted",
+      "duration": 0.006175994873046875,
+      "timestamp": "2025-08-11T20:23:33.013318"
+    },
+    "WebSocket Connection": {
+      "success": false,
+      "details": "Exception: server rejected WebSocket connection: HTTP 403",
+      "duration": 0.09137988090515137,
+      "timestamp": "2025-08-11T20:23:33.104789"
+    },
+    "WebSocket Answer Delivery": {
+      "success": false,
+      "details": "Exception: server rejected WebSocket connection: HTTP 403",
+      "duration": 0.004210948944091797,
+      "timestamp": "2025-08-11T20:23:33.109199"
+    },
+    "Session Cleanup": {
+      "success": true,
+      "details": "Deleted session cf883f2d...",
+      "duration": 0.0038831233978271484,
+      "timestamp": "2025-08-11T20:23:33.113343"
+    },
+    "Session Cleanup Verification": {
+      "success": true,
+      "details": "Session successfully deleted (404 as expected)",
+      "duration": 0.0038831233978271484,
+      "timestamp": "2025-08-11T20:23:33.116309"
+    }
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "total_tests": 10,
+  "passed_tests": 7,
+  "failed_tests": 3,
+  "success_rate": 70.0,
+  "results": {
+    "Health Check": {
+      "success": true,
+      "details": "Status: healthy, NATS: True, Milvus: True",
+      "duration": 0.016138076782226562,
+      "timestamp": "2025-08-11T20:40:31.951651"
+    },
+    "Root Endpoint": {
+      "success": true,
+      "details": "Version: 0.1.0",
+      "duration": 0.0024640560150146484,
+      "timestamp": "2025-08-11T20:40:31.954227"
+    },
+    "Session Creation": {
+      "success": true,
+      "details": "Created session 1fb267f1... for 'Test User API'",
+      "duration": 0.022030115127563477,
+      "timestamp": "2025-08-11T20:40:31.976409"
+    },
+    "Session Retrieval": {
+      "success": true,
+      "details": "Retrieved session 1fb267f1..., active: True",
+      "duration": 0.0028553009033203125,
+      "timestamp": "2025-08-11T20:40:31.979353"
+    },
+    "Session Validation": {
+      "success": true,
+      "details": "Session 1fb267f1... valid: True",
+      "duration": 0.0024008750915527344,
+      "timestamp": "2025-08-11T20:40:31.981827"
+    },
+    "Document Upload": {
+      "success": true,
+      "details": "Submitted 1 URL(s) for processing",
+      "duration": 0.0063478946685791016,
+      "timestamp": "2025-08-11T20:40:31.988318"
+    },
+    "Question Submission": {
+      "success": true,
+      "details": "Question ID: 00b84399-a94f-4bbc-b843-44925d4246a2, Status: submitted",
+      "duration": 0.007233142852783203,
+      "timestamp": "2025-08-11T20:40:31.995869"
+    },
+    "WebSocket Connection": {
+      "success": true,
+      "details": "Connected with ID f4963380-8967-4460-bef9-5cfebe7477fc, ping/pong successful",
+      "duration": 0.02546405792236328,
+      "timestamp": "2025-08-11T20:40:32.021423"
+    },
+    "WebSocket Answer Delivery": {
+      "success": false,
+      "details": "No answer received within 30.0s timeout",
+      "duration": 30.795926094055176,
+      "timestamp": "2025-08-11T20:41:02.818400"
+    },
+    "Session Cleanup": {
+      "success": true,
+      "details": "Deleted session 1fb267f1...",
+      "duration": 0.005525112152099609,
+      "timestamp": "2025-08-11T20:41:02.825974"
+    },
+    "Session Cleanup Verification": {
+      "success": true,
+      "details": "Session successfully deleted (404 as expected)",
+      "duration": 0.005525112152099609,
+      "timestamp": "2025-08-11T20:41:02.829177"
+    }
+  }
+}
