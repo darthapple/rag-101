@@ -1,0 +1,37 @@
+#!/bin/bash
+# Check Milvus database - no dependencies needed, uses Docker
+
+docker exec rag-101-worker python -c "
+from pymilvus import connections, Collection
+
+connections.connect('default', host='standalone', port='19530')
+col = Collection('medical_documents')
+col.load()
+
+print(f'✅ Milvus Database Status')
+print(f'📊 Total chunks: {col.num_entities}')
+
+if col.num_entities > 0:
+    results = col.query(
+        expr='chunk_id != \"\"', 
+        output_fields=['document_title', 'source_url'], 
+        limit=100
+    )
+    
+    docs = set(r.get('document_title', '') for r in results if r.get('document_title'))
+    print(f'📚 Unique documents: {len(docs)}')
+    
+    for i, doc in enumerate(docs, 1):
+        print(f'   {i}. {doc}')
+    
+    # Get sample chunk
+    sample = col.query(expr='chunk_id != \"\"', output_fields=['text_content'], limit=1)
+    if sample:
+        text = sample[0].get('text_content', '')[:300]
+        print(f'\n📄 Sample text:')
+        print(f'   {text}...')
+else:
+    print('⚠️  No documents in database')
+
+connections.disconnect('default')
+"
