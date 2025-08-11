@@ -49,8 +49,8 @@ class NATSConfigurator:
         
         # Stream configurations
         self.streams = {
-            'QUESTIONS': {
-                'name': 'QUESTIONS',
+            'questions': {
+                'name': 'questions',
                 'subjects': ['questions', 'questions.>'],
                 'description': 'User questions for processing',
                 'max_age': timedelta(hours=1),
@@ -60,8 +60,8 @@ class NATSConfigurator:
                 'discard': DiscardPolicy.OLD,
                 'duplicate_window': timedelta(minutes=1)
             },
-            'DOCUMENTS': {
-                'name': 'DOCUMENTS',
+            'documents': {
+                'name': 'documents',
                 'subjects': ['documents.download', 'documents.process', 'documents.status'],
                 'description': 'Document processing requests and status',
                 'max_age': timedelta(hours=1),
@@ -70,8 +70,8 @@ class NATSConfigurator:
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'EMBEDDINGS': {
-                'name': 'EMBEDDINGS',
+            'embeddings': {
+                'name': 'embeddings',
                 'subjects': ['embeddings.create', 'embeddings.status', 'embeddings.complete'],
                 'description': 'Embedding generation tasks',
                 'max_age': timedelta(hours=1),
@@ -80,8 +80,8 @@ class NATSConfigurator:
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'ANSWERS': {
-                'name': 'ANSWERS',
+            'answers': {
+                'name': 'answers',
                 'subjects': ['answers.*'],
                 'description': 'Session-specific answer delivery',
                 'max_age': timedelta(hours=1),
@@ -90,8 +90,8 @@ class NATSConfigurator:
                 'retention': RetentionPolicy.LIMITS,
                 'discard': DiscardPolicy.OLD
             },
-            'SYSTEM': {
-                'name': 'SYSTEM',
+            'system': {
+                'name': 'system',
                 'subjects': ['system.metrics', 'system.health', 'system.events'],
                 'description': 'System monitoring and metrics',
                 'max_age': timedelta(minutes=30),
@@ -105,7 +105,7 @@ class NATSConfigurator:
         # Consumer configurations
         self.consumers = {
             'question-worker': {
-                'stream': 'QUESTIONS',
+                'stream': 'questions',
                 'durable_name': 'question-worker',
                 'filter_subject': 'questions',
                 'deliver_policy': DeliverPolicy.ALL,
@@ -116,7 +116,7 @@ class NATSConfigurator:
                 'description': 'Worker consumer for processing questions'
             },
             'document-worker': {
-                'stream': 'DOCUMENTS',
+                'stream': 'documents',
                 'durable_name': 'document-worker',
                 'filter_subject': 'documents.download',
                 'deliver_policy': DeliverPolicy.ALL,
@@ -127,7 +127,7 @@ class NATSConfigurator:
                 'description': 'Worker consumer for document processing'
             },
             'embedding-worker': {
-                'stream': 'EMBEDDINGS',
+                'stream': 'embeddings',
                 'durable_name': 'embedding-worker',
                 'filter_subject': 'embeddings.create',
                 'deliver_policy': DeliverPolicy.ALL,
@@ -138,7 +138,7 @@ class NATSConfigurator:
                 'description': 'Worker consumer for embedding generation'
             },
             'answer-monitor': {
-                'stream': 'ANSWERS',
+                'stream': 'answers',
                 'durable_name': 'answer-monitor',
                 'filter_subject': 'answers.>',
                 'deliver_policy': DeliverPolicy.NEW,
@@ -147,7 +147,7 @@ class NATSConfigurator:
                 'description': 'Monitor consumer for answer tracking'
             },
             'metrics-collector': {
-                'stream': 'SYSTEM',
+                'stream': 'system',
                 'durable_name': 'metrics-collector',
                 'filter_subject': 'system.metrics',
                 'deliver_policy': DeliverPolicy.NEW,

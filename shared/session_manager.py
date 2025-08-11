@@ -250,7 +250,7 @@ class NATSSessionManager:
             
             # Store in NATS KV
             session_data = json.dumps(session.to_dict())
-            await self.kv_bucket.put(session_id, session_data.encode(), ttl=ttl)
+            await self.kv_bucket.put(session_id, session_data.encode())
             
             self.logger.info(f"Created session {session_id} with TTL {ttl}s")
             return session
@@ -339,7 +339,7 @@ class NATSSessionManager:
             
             # Store updated session
             session_data = json.dumps(session.to_dict())
-            await self.kv_bucket.put(session.session_id, session_data.encode(), ttl=ttl)
+            await self.kv_bucket.put(session.session_id, session_data.encode())
             
             self.logger.debug(f"Updated session {session.session_id}")
             return session
@@ -443,7 +443,8 @@ class NATSSessionManager:
             await self._ensure_connected()
             
             sessions = []
-            async for key in self.kv_bucket.keys():
+            keys = await self.kv_bucket.keys()
+            for key in keys:
                 if len(sessions) >= limit:
                     break
                 

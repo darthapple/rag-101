@@ -2,7 +2,8 @@ import os
 import logging
 from typing import List, Optional, Union
 from pathlib import Path
-from pydantic import BaseSettings, Field, validator, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
+from pydantic_settings import BaseSettings
 
 
 logger = logging.getLogger(__name__)
@@ -16,23 +17,23 @@ class BaseConfig(BaseSettings):
     It handles environment variable loading, .env file support, and common configuration patterns.
     """
     
-    class Config:
-        """Pydantic configuration"""
+    model_config = {
         # Load from .env file if present
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
         
         # Allow case insensitive environment variables
-        case_sensitive = False
+        "case_sensitive": False,
         
         # Enable environment variable expansion
-        env_nested_delimiter = "__"
+        "env_nested_delimiter": "__",
         
         # Validate assignment when values are changed
-        validate_assignment = True
+        "validate_assignment": True,
         
         # Allow extra fields but don't include them in the dict
-        extra = "ignore"
+        "extra": "ignore"
+    }
     
     # Environment and deployment settings
     environment: str = Field(
@@ -53,7 +54,8 @@ class BaseConfig(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
     
-    @validator('environment')
+    @field_validator('environment')
+    @classmethod
     def validate_environment(cls, v):
         """Validate environment values"""
         valid_environments = ['development', 'staging', 'production', 'testing']
@@ -62,7 +64,8 @@ class BaseConfig(BaseSettings):
             return 'development'
         return v.lower()
     
-    @validator('log_level')
+    @field_validator('log_level')
+    @classmethod
     def validate_log_level(cls, v):
         """Validate log level values"""
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
@@ -105,7 +108,7 @@ class BaseConfig(BaseSettings):
         return self.environment == 'testing'
 
 
-class HealthCheckConfig(BaseConfig):
+class HealthCheckConfig:
     """Health check and monitoring configuration"""
     
     # Health check settings
@@ -313,7 +316,7 @@ def get_env_int(env_var: str, default: int = 0, min_val: int = None, max_val: in
 
 # Service-Specific Configuration Classes
 
-class NATSConfig(BaseConfig):
+class NATSConfig:
     """NATS messaging configuration"""
     
     # Connection settings
@@ -386,7 +389,51 @@ class NATSConfig(BaseConfig):
         description="Prefix for all NATS topics"
     )
     
-    @validator('nats_servers')
+    # Core topic names (all lowercase)
+    questions_topic: str = Field(
+        default="questions",
+        env="QUESTIONS_TOPIC",
+        description="Questions topic name"
+    )
+    
+    documents_download_topic: str = Field(
+        default="documents.download",
+        env="DOCUMENTS_DOWNLOAD_TOPIC", 
+        description="Document download processing topic"
+    )
+    
+    documents_chunks_topic: str = Field(
+        default="documents.chunks",
+        env="DOCUMENTS_CHUNKS_TOPIC",
+        description="Document chunks processing topic"
+    )
+    
+    documents_embeddings_topic: str = Field(
+        default="documents.embeddings",
+        env="DOCUMENTS_EMBEDDINGS_TOPIC",
+        description="Document embeddings processing topic"
+    )
+    
+    answers_topic_prefix: str = Field(
+        default="answers",
+        env="ANSWERS_TOPIC_PREFIX",
+        description="Prefix for answer topics (answers.{session_id})"
+    )
+    
+    system_metrics_topic: str = Field(
+        default="system.metrics",
+        env="SYSTEM_METRICS_TOPIC",
+        description="System monitoring topic"
+    )
+    
+    errors_topic_prefix: str = Field(
+        default="errors",
+        env="ERRORS_TOPIC_PREFIX",
+        description="Error logging topic prefix"
+    )
+    
+    @field_validator('nats_servers')
+    @classmethod
     def validate_nats_servers(cls, v):
         """Validate NATS server URLs"""
         if isinstance(v, str):
@@ -400,9 +447,19 @@ class NATSConfig(BaseConfig):
             validated_servers.append(server)
         
         return validated_servers
+    
+    @field_validator('questions_topic', 'documents_download_topic', 'documents_chunks_topic', 
+                     'documents_embeddings_topic', 'answers_topic_prefix', 'system_metrics_topic', 'errors_topic_prefix')
+    @classmethod
+    def validate_topic_names(cls, v):
+        """Ensure topic names are lowercase"""
+        if v != v.lower():
+            logger.warning(f"Topic name '{v}' should be lowercase, converting to '{v.lower()}'")
+            return v.lower()
+        return v
 
 
-class MilvusConfig(BaseConfig):
+class MilvusConfig:
     """Milvus vector database configuration"""
     
     # Connection settings
@@ -480,7 +537,8 @@ class MilvusConfig(BaseConfig):
         description="Connection timeout in seconds"
     )
     
-    @validator('index_type')
+    @field_validator('index_type')
+    @classmethod
     def validate_index_type(cls, v):
         """Validate index type"""
         valid_types = ['FLAT', 'IVF_FLAT', 'IVF_SQ8', 'IVF_PQ', 'HNSW']
@@ -489,7 +547,8 @@ class MilvusConfig(BaseConfig):
             return 'IVF_FLAT'
         return v
     
-    @validator('metric_type') 
+    @field_validator('metric_type') 
+    @classmethod
     def validate_metric_type(cls, v):
         """Validate metric type"""
         valid_metrics = ['L2', 'IP', 'COSINE', 'HAMMING', 'JACCARD']
@@ -499,13 +558,13 @@ class MilvusConfig(BaseConfig):
         return v
 
 
-class GeminiConfig(BaseConfig):
+class GeminiConfig:
     """Google Gemini API configuration"""
     
     # API settings
     google_api_key: Optional[str] = Field(
         default=None,
-        env="GOOGLE_API_KEY",
+        env="GEMINI_API_KEY",
         description="Google Gemini API key"
     )
     
@@ -581,7 +640,8 @@ class GeminiConfig(BaseConfig):
         description="Request timeout in seconds"
     )
     
-    @validator('google_api_key')
+    @field_validator('google_api_key')
+    @classmethod
     def validate_api_key(cls, v):
         """Validate API key format"""
         if v and not v.startswith('AIza'):
@@ -589,7 +649,7 @@ class GeminiConfig(BaseConfig):
         return v
 
 
-class WorkerConfig(BaseConfig):
+class WorkerConfig:
     """Worker service configuration"""
     
     # Concurrency settings
@@ -685,7 +745,7 @@ class WorkerConfig(BaseConfig):
     )
 
 
-class APIConfig(BaseConfig):
+class APIConfig:
     """API service configuration"""
     
     # Server settings
@@ -789,7 +849,7 @@ class APIConfig(BaseConfig):
     )
 
 
-class UIConfig(BaseConfig):
+class UIConfig:
     """UI service configuration"""
     
     # Streamlit settings
@@ -837,7 +897,8 @@ class UIConfig(BaseConfig):
         description="UI theme (light, dark)"
     )
     
-    @validator('theme')
+    @field_validator('theme')
+    @classmethod
     def validate_theme(cls, v):
         """Validate theme"""
         valid_themes = ['light', 'dark']
@@ -885,7 +946,7 @@ class AppConfig(
         
         # Check required API key for Gemini
         if not self.google_api_key:
-            validation_errors.append("GOOGLE_API_KEY is required for AI functionality")
+            validation_errors.append("GEMINI_API_KEY is required for AI functionality")
         
         # Validate TTL consistency
         if self.message_ttl > self.session_ttl:
@@ -1139,5 +1200,5 @@ def set_config(config: AppConfig) -> None:
     _config_instance = config
 
 
-# Export the main configuration instance
-config = get_config()
+# Export the main configuration instance (lazy-loaded)
+config = None

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 import nats
 from nats.aio.client import Client as NATS
-from nats.js.api import PublishAck
+from nats.js.api import PubAck
 
 from .config import get_config
 
@@ -263,8 +263,9 @@ class QuestionManager:
             }
             
             # Publish to questions topic
-            ack: PublishAck = await js.publish(
-                "questions",
+            topic_name = self.config.questions_topic
+            ack: PubAck = await js.publish(
+                topic_name,
                 json.dumps(message_data).encode(),
                 headers={'question_id': job.question_id, 'session_id': job.session_id}
             )

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Query
 from pydantic import BaseModel, Field, validator
 
 # Add project root to Python path
@@ -35,9 +35,7 @@ from shared.session_manager import (
 # Request/Response models
 class CreateSessionRequest(BaseModel):
     """Request model for creating a new session"""
-    nickname: Optional[str] = Field(None, min_length=1, max_length=100, description="Session nickname")
-    ttl: Optional[int] = Field(None, ge=60, le=86400, description="Session TTL in seconds (1 minute to 24 hours)")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional session metadata")
+    nickname: str = Field(..., min_length=1, max_length=100, description="Session nickname")
     
     @validator('nickname')
     def validate_nickname(cls, v):
@@ -138,9 +136,7 @@ async def create_session(
     try:
         # Create session using NATS session manager
         session = await session_manager.create_session(
-            nickname=request.nickname,
-            ttl=request.ttl,
-            metadata=request.metadata
+            nickname=request.nickname
         )
         
         logger.info(f"Created session {session.session_id} with nickname '{session.nickname}'")
@@ -359,10 +355,13 @@ async def validate_session(
         )
 
 
+class ExtendSessionRequest(BaseModel):
+    additional_seconds: int = Field(3600, ge=60, le=86400, description="Additional seconds to add to TTL")
+
 @router.post("/{session_id}/extend")
 async def extend_session(
     session_id: str,
-    additional_seconds: int = Field(3600, ge=60, le=86400, description="Additional seconds to add to TTL"),
+    request: ExtendSessionRequest,
     session_manager = Depends(get_session_manager_dependency)
 ):
     """
@@ -380,9 +379,9 @@ async def extend_session(
         HTTPException: If session not found or extension fails
     """
     try:
-        session = await session_manager.extend_session(session_id, additional_seconds)
+        session = await session_manager.extend_session(session_id, request.additional_seconds)
         
-        logger.info(f"Extended session {session_id} by {additional_seconds} seconds")
+        logger.info(f"Extended session {session_id} by {request.additional_seconds} seconds")
         
         return SessionResponse(
             session_id=session.session_id,
@@ -415,7 +414,7 @@ async def extend_session(
 
 @router.get("/", response_model=SessionListResponse)
 async def list_sessions(
-    limit: int = Field(50, ge=1, le=500, description="Maximum number of sessions to return"),
+    limit: int = Query(50, ge=1, le=500, description="Maximum number of sessions to return"),
     session_manager = Depends(get_session_manager_dependency)
 ):
     """
@@ -501,7 +500,7 @@ async def get_session_stats(
 @router.post("/{session_id}/activity")
 async def update_session_activity(
     session_id: str,
-    increment_questions: bool = Field(False, description="Whether to increment question count"),
+    increment_questions: bool = Query(False, description="Whether to increment question count"),
     session_manager = Depends(get_session_manager_dependency)
 ):
     """

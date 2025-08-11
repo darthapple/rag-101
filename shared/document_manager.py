@@ -11,14 +11,15 @@ import json
 import uuid
 import re
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, quote
 from dataclasses import dataclass, field
 
 import aiohttp
 import nats
 from nats.aio.client import Client as NATS
-from nats.js.api import PublishAck
+from nats.js.api import PubAck, KeyValueConfig, StorageType
+from nats.js.errors import KeyNotFoundError, BucketNotFoundError
 
 from .config import get_config
 
@@ -34,6 +35,11 @@ class DocumentJob:
     metadata: Dict[str, Any] = field(default_factory=dict)
     session_id: Optional[str] = None
     estimated_size: Optional[int] = None
+    updated_at: datetime = field(default_factory=datetime.now)
+    progress: Dict[str, Any] = field(default_factory=dict)
+    error_message: Optional[str] = None
+    processing_stages: List[str] = field(default_factory=lambda: ["queued", "downloading", "chunking", "embedding", "completed"])
+    current_stage_index: int = 0
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert job to dictionary for serialization"""
@@ -45,8 +51,60 @@ class DocumentJob:
             'status': self.status,
             'metadata': self.metadata,
             'session_id': self.session_id,
-            'estimated_size': self.estimated_size
+            'estimated_size': self.estimated_size,
+            'updated_at': self.updated_at.isoformat(),
+            'progress': self.progress,
+            'error_message': self.error_message,
+            'processing_stages': self.processing_stages,
+            'current_stage_index': self.current_stage_index
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DocumentJob':
+        """Create job from dictionary"""
+        return cls(
+            job_id=data['job_id'],
+            url=data['url'],
+            title=data.get('title'),
+            submitted_at=datetime.fromisoformat(data['submitted_at']),
+            status=data.get('status', 'queued'),
+            metadata=data.get('metadata', {}),
+            session_id=data.get('session_id'),
+            estimated_size=data.get('estimated_size'),
+            updated_at=datetime.fromisoformat(data.get('updated_at', data['submitted_at'])),
+            progress=data.get('progress', {}),
+            error_message=data.get('error_message'),
+            processing_stages=data.get('processing_stages', ["queued", "downloading", "chunking", "embedding", "completed"]),
+            current_stage_index=data.get('current_stage_index', 0)
+        )
+    
+    def get_current_stage(self) -> str:
+        """Get current processing stage"""
+        if 0 <= self.current_stage_index < len(self.processing_stages):
+            return self.processing_stages[self.current_stage_index]
+        return "unknown"
+    
+    def advance_stage(self, message: Optional[str] = None):
+        """Advance to next processing stage"""
+        if self.current_stage_index < len(self.processing_stages) - 1:
+            self.current_stage_index += 1
+            self.status = self.get_current_stage()
+            
+        if message:
+            self.progress['message'] = message
+            
+        # Update percentage based on stage
+        total_stages = len(self.processing_stages)
+        self.progress['percentage'] = int((self.current_stage_index / (total_stages - 1)) * 100)
+        
+        self.updated_at = datetime.now()
+    
+    def set_error(self, error_message: str):
+        """Set job error status"""
+        self.status = "failed"
+        self.error_message = error_message
+        self.updated_at = datetime.now()
+        self.progress['message'] = f"Error: {error_message}"
 
 
 class DocumentValidationError(Exception):
@@ -68,22 +126,25 @@ class DocumentManager:
     """
     Manager for document URL processing and job management.
     
-    Handles URL validation, job creation, and NATS publishing for
-    document processing requests.
+    Handles URL validation, job creation, NATS publishing, and job tracking
+    via NATS Key-Value store for document processing requests.
     """
     
-    def __init__(self):
+    def __init__(self, bucket_name: str = "document_jobs"):
         """Initialize document manager"""
         self.config = get_config()
         self.logger = logging.getLogger("document.manager")
+        self.bucket_name = bucket_name
         
-        # NATS client
+        # NATS client and KV bucket
         self.nats_client: Optional[NATS] = None
+        self.kv_bucket = None
         self._connected = False
         self._connection_lock = asyncio.Lock()
         
         # Configuration
         self.max_file_size = self.config.max_file_size
+        self.job_ttl = 3600 * 24  # 24 hours TTL for document jobs
         self.allowed_schemes = ['http', 'https']
         self.blocked_domains = [
             'localhost', '127.0.0.1', '0.0.0.0', '::1',
@@ -95,11 +156,11 @@ class DocumentManager:
         # HTTP client for HEAD requests
         self._http_session: Optional[aiohttp.ClientSession] = None
         
-        self.logger.info("Document manager initialized")
+        self.logger.info(f"Document manager initialized with KV bucket '{bucket_name}'")
     
     async def connect(self) -> bool:
         """
-        Connect to NATS for job publishing
+        Connect to NATS for job publishing and KV storage
         
         Returns:
             bool: True if connected successfully
@@ -120,6 +181,27 @@ class DocumentManager:
                     max_outstanding_pings=self.config.max_outstanding_pings
                 )
                 
+                # Get JetStream context
+                js = self.nats_client.jetstream()
+                
+                # Create or get KV bucket for document jobs
+                try:
+                    self.kv_bucket = await js.key_value(self.bucket_name)
+                    self.logger.info(f"Using existing KV bucket '{self.bucket_name}'")
+                except BucketNotFoundError:
+                    # Create new bucket
+                    bucket_config = KeyValueConfig(
+                        bucket=self.bucket_name,
+                        description="Document job tracking for RAG-101 processing pipeline",
+                        max_value_size=51200,  # 50KB per job
+                        storage=StorageType.MEMORY,  # Use memory storage for jobs
+                        num_replicas=1,
+                        ttl=self.job_ttl  # 24 hour TTL
+                    )
+                    
+                    self.kv_bucket = await js.create_key_value(bucket_config)
+                    self.logger.info(f"Created new KV bucket '{self.bucket_name}'")
+                
                 # Create HTTP session
                 timeout = aiohttp.ClientTimeout(total=30)
                 self._http_session = aiohttp.ClientSession(
@@ -128,7 +210,7 @@ class DocumentManager:
                 )
                 
                 self._connected = True
-                self.logger.info("Document manager connected to NATS")
+                self.logger.info("Document manager connected to NATS with KV support")
                 return True
                 
             except Exception as e:
@@ -148,6 +230,7 @@ class DocumentManager:
             
             self._connected = False
             self.nats_client = None
+            self.kv_bucket = None
             
             self.logger.info("Document manager disconnected")
             
@@ -377,8 +460,9 @@ class DocumentManager:
             }
             
             # Publish to documents.download topic
-            ack: PublishAck = await js.publish(
-                "documents.download",
+            topic_name = self.config.documents_download_topic
+            ack: PubAck = await js.publish(
+                topic_name,
                 json.dumps(message_data).encode(),
                 headers={'job_id': job.job_id}
             )
@@ -389,6 +473,161 @@ class DocumentManager:
         except Exception as e:
             self.logger.error(f"Failed to publish job {job.job_id}: {e}")
             raise DocumentPublishError(f"Job publishing failed: {e}")
+    
+    async def store_job(self, job: DocumentJob) -> bool:
+        """
+        Store job in NATS KV for tracking
+        
+        Args:
+            job: Document job to store
+            
+        Returns:
+            bool: True if stored successfully
+            
+        Raises:
+            DocumentManagerError: If storage fails
+        """
+        try:
+            await self._ensure_connected()
+            
+            # Store job data in KV
+            job_data = json.dumps(job.to_dict())
+            await self.kv_bucket.put(job.job_id, job_data.encode(), ttl=self.job_ttl)
+            
+            self.logger.debug(f"Stored job {job.job_id} in KV bucket")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to store job {job.job_id}: {e}")
+            raise DocumentManagerError(f"Job storage failed: {e}")
+    
+    async def get_job(self, job_id: str) -> Optional[DocumentJob]:
+        """
+        Get job by ID from NATS KV
+        
+        Args:
+            job_id: Job identifier
+            
+        Returns:
+            DocumentJob: Job object if found, None otherwise
+            
+        Raises:
+            DocumentManagerError: If retrieval fails
+        """
+        try:
+            await self._ensure_connected()
+            
+            try:
+                entry = await self.kv_bucket.get(job_id)
+                job_data = json.loads(entry.value.decode())
+                job = DocumentJob.from_dict(job_data)
+                
+                self.logger.debug(f"Retrieved job {job_id} from KV")
+                return job
+                
+            except KeyNotFoundError:
+                self.logger.debug(f"Job {job_id} not found in KV")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get job {job_id}: {e}")
+            raise DocumentManagerError(f"Job retrieval failed: {e}")
+    
+    async def update_job(self, job: DocumentJob) -> bool:
+        """
+        Update job in NATS KV
+        
+        Args:
+            job: Updated job object
+            
+        Returns:
+            bool: True if updated successfully
+            
+        Raises:
+            DocumentManagerError: If update fails
+        """
+        try:
+            await self._ensure_connected()
+            
+            # Update timestamp
+            job.updated_at = datetime.now()
+            
+            # Store updated job data
+            job_data = json.dumps(job.to_dict())
+            await self.kv_bucket.put(job.job_id, job_data.encode(), ttl=self.job_ttl)
+            
+            self.logger.debug(f"Updated job {job.job_id} in KV")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update job {job.job_id}: {e}")
+            raise DocumentManagerError(f"Job update failed: {e}")
+    
+    async def delete_job(self, job_id: str) -> bool:
+        """
+        Delete job from NATS KV
+        
+        Args:
+            job_id: Job identifier
+            
+        Returns:
+            bool: True if deleted successfully
+        """
+        try:
+            await self._ensure_connected()
+            
+            try:
+                await self.kv_bucket.delete(job_id)
+                self.logger.info(f"Deleted job {job_id} from KV")
+                return True
+                
+            except KeyNotFoundError:
+                # Job already doesn't exist
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Failed to delete job {job_id}: {e}")
+            return False
+    
+    async def list_jobs(self, status_filter: Optional[str] = None, limit: int = 100) -> List[DocumentJob]:
+        """
+        List document jobs from NATS KV
+        
+        Args:
+            status_filter: Optional status to filter by
+            limit: Maximum number of jobs to return
+            
+        Returns:
+            List[DocumentJob]: List of jobs
+        """
+        try:
+            await self._ensure_connected()
+            
+            jobs = []
+            async for key in self.kv_bucket.keys():
+                if len(jobs) >= limit:
+                    break
+                
+                try:
+                    entry = await self.kv_bucket.get(key)
+                    job_data = json.loads(entry.value.decode())
+                    job = DocumentJob.from_dict(job_data)
+                    
+                    if status_filter and job.status != status_filter:
+                        continue
+                        
+                    jobs.append(job)
+                        
+                except Exception as e:
+                    self.logger.debug(f"Skipping invalid job {key}: {e}")
+            
+            # Sort by submission time (newest first)
+            jobs.sort(key=lambda j: j.submitted_at, reverse=True)
+            return jobs
+            
+        except Exception as e:
+            self.logger.error(f"Failed to list jobs: {e}")
+            return []
     
     async def submit_document_url(
         self, 
@@ -438,7 +677,10 @@ class DocumentManager:
             )
             job.estimated_size = estimated_size
             
-            # Step 4: Publish job
+            # Step 4: Store job in KV
+            await self.store_job(job)
+            
+            # Step 5: Publish job
             await self.publish_job(job)
             
             return job
@@ -449,21 +691,77 @@ class DocumentManager:
             self.logger.error(f"Document submission failed: {e}")
             raise DocumentManagerError(f"Document submission failed: {e}")
     
-    def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """
-        Get document manager statistics
+        Get document manager statistics from KV store
         
         Returns:
             Dict[str, Any]: Statistics
         """
-        return {
-            'connected': self._connected,
-            'max_file_size': self.max_file_size,
-            'max_file_size_mb': round(self.max_file_size / (1024 * 1024), 1),
-            'allowed_schemes': self.allowed_schemes,
-            'blocked_domains_count': len(self.blocked_domains),
-            'nats_connected': self._connected and self.nats_client and not self.nats_client.is_closed
-        }
+        try:
+            base_stats = {
+                'connected': self._connected,
+                'max_file_size': self.max_file_size,
+                'max_file_size_mb': round(self.max_file_size / (1024 * 1024), 1),
+                'allowed_schemes': self.allowed_schemes,
+                'blocked_domains_count': len(self.blocked_domains),
+                'nats_connected': self._connected and self.nats_client and not self.nats_client.is_closed,
+                'bucket_name': self.bucket_name,
+                'job_ttl': self.job_ttl
+            }
+            
+            if not self._connected:
+                return base_stats
+            
+            # Get job statistics from KV
+            try:
+                jobs = await self.list_jobs(limit=1000)
+                
+                # Count by status
+                status_counts = {}
+                for job in jobs:
+                    status_counts[job.status] = status_counts.get(job.status, 0) + 1
+                
+                # Calculate processing times for completed jobs
+                processing_times = []
+                failed_jobs = []
+                
+                for job in jobs:
+                    if job.status == "completed" and job.submitted_at and job.updated_at:
+                        processing_time = (job.updated_at - job.submitted_at).total_seconds()
+                        processing_times.append(processing_time)
+                    elif job.status == "failed":
+                        failed_jobs.append({
+                            'job_id': job.job_id,
+                            'url': job.url[:50] + '...' if len(job.url) > 50 else job.url,
+                            'error': job.error_message
+                        })
+                
+                base_stats.update({
+                    'total_jobs': len(jobs),
+                    'by_status': status_counts,
+                    'average_processing_time': sum(processing_times) / len(processing_times) if processing_times else 0,
+                    'success_rate': (status_counts.get('completed', 0) / len(jobs)) if jobs else 0,
+                    'recent_failures': failed_jobs[:5]  # Last 5 failures
+                })
+                
+                # Active jobs (processing stages)
+                active_jobs = [j for j in jobs if j.status in ['queued', 'downloading', 'chunking', 'embedding']]
+                base_stats['active_jobs_count'] = len(active_jobs)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to get job statistics: {e}")
+                base_stats['stats_error'] = str(e)
+            
+            return base_stats
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get stats: {e}")
+            return {
+                'connected': self._connected,
+                'bucket_name': self.bucket_name,
+                'error': str(e)
+            }
 
 
 # Global document manager instance
