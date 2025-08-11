@@ -38,7 +38,8 @@ graph TB
     
     subgraph "Worker Layer"
         QW[Question Worker]
-        DW[Document Worker]
+        DW[Document Download Worker]
+        CW[Chunk Processing Worker]
         EW[Embedding Worker]
     end
     
@@ -49,7 +50,8 @@ graph TB
     
     subgraph "Document Processing Flow"
         DT[documents.download topic]
-        ET[embeddings.create topic]
+        CT[documents.chunks topic]
+        ET[documents.embeddings topic]
     end
     
     %% User Interactions
@@ -71,7 +73,9 @@ graph TB
     %% Worker Processing - Document Indexing Flow  
     DT --> DW
     DW --> FILES
-    DW --> ET
+    DW --> CT
+    CT --> CW
+    CW --> ET
     ET --> EW
     EW --> VECTOR
     
@@ -92,9 +96,9 @@ graph TB
 
 **Document Indexing Workflow:**
 1. **Document Submission**: Admin/UI → API → Individual messages to NATS `documents.download` topic
-2. **PDF Processing**: Document Worker → Download PDF → LangChain loaders → Text splitting
-3. **Chunk Distribution**: Document Worker → Chunks to NATS `embeddings.create` topic (parallel)
-4. **Embedding Generation**: Embedding Worker → GoogleGenerativeAI → Vector embeddings
+2. **PDF Download & Text Extraction**: Document Download Worker → Download PDF → LangChain loaders → Raw text extraction → NATS `documents.chunks` topic
+3. **Text Chunking**: Chunk Processing Worker → Read from `documents.chunks` → Text splitting with metadata → NATS `documents.embeddings` topic (parallel)
+4. **Embedding Generation**: Embedding Worker → Read from `documents.embeddings` → GoogleGenerativeAI → Vector embeddings
 5. **Knowledge Base Update**: Embedding Worker → Store in Milvus → Available for Q&A queries
 
 **Integration**: New documents automatically enhance the knowledge base for all future Q&A sessions
@@ -111,7 +115,7 @@ The UI includes a visual monitoring dashboard that provides real-time visibility
 - **Message Flow Tracking**: Real-time updates showing message movement through the pipeline
 - **Dual Flow Monitoring**: 
   - **Q&A Flow**: `questions` → `answers.{session_id}` topic progression
-  - **Document Indexing Flow**: `documents.download` → `embeddings.create` topic progression
+  - **Document Indexing Flow**: `documents.download` → `documents.chunks` → `documents.embeddings` topic progression
 
 ### Technical Implementation:
 - WebSocket connection to NATS for real-time topic statistics
@@ -242,7 +246,8 @@ KV_TTL=3600                                      # Key-Value store TTL (seconds)
 # Topic Configuration
 QUESTIONS_TOPIC=questions                        # Questions topic name
 DOCUMENTS_TOPIC=documents.download               # Document processing topic
-EMBEDDINGS_TOPIC=embeddings.create              # Embedding generation topic
+CHUNKS_TOPIC=documents.chunks                   # Text chunking topic
+EMBEDDINGS_TOPIC=documents.embeddings           # Embedding generation topic
 ANSWERS_TOPIC_PREFIX=answers                     # Prefix for answer topics (answers.{session_id})
 METRICS_TOPIC=system.metrics                     # System monitoring topic
 ERRORS_TOPIC_PREFIX=errors                       # Error logging topic prefix
@@ -914,8 +919,9 @@ See [Configuration Reference](#configuration-reference) and [Message Schemas](#m
 
 ### Worker Services
 - **LangChain-powered RAG pipeline** with Gemini integration
-- Three specialized worker types:
-  - **Document Worker**: PDF processing and text chunking
+- Four specialized worker types:
+  - **Document Download Worker**: PDF downloading and raw text extraction
+  - **Chunk Processing Worker**: Text chunking and metadata extraction using LangChain text splitters
   - **Embedding Worker**: Vector embedding generation
   - **Question Worker**: Real-time Q&A with RAG pipeline
 - Multiprocessing architecture with configurable worker instances per topic
@@ -1310,7 +1316,25 @@ NATS handles all ephemeral messaging with 1-hour TTL. All data expires automatic
 }
 ```
 
-**Topic: `embeddings.create`**  
+**Topic: `documents.chunks`**
+```json
+{
+  "job_id": "789e0123-e45f-67g8-h901-234567890123",
+  "raw_text": "A diabetes mellitus é uma doença crônica caracterizada pela elevação da glicose no sangue (hiperglicemia). O diabetes pode ser classificado em diferentes tipos...",
+  "document_metadata": {
+    "source_url": "https://www.gov.br/saude/pt-br/assuntos/pcdt/diabetes.pdf",
+    "title": "Protocolo Clínico - Diabetes Mellitus Tipo 2",
+    "total_pages": 45,
+    "file_size_bytes": 2048576,
+    "content_hash": "sha256:abc123...",
+    "downloaded_at": "2024-01-01T12:30:01Z"
+  },
+  "created_at": "2024-01-01T12:30:01Z",
+  "ttl": 3600
+}
+```
+
+**Topic: `documents.embeddings`**  
 ```json
 {
   "chunk_id": "abc12345-def6-789g-hij0-123456789012",
@@ -1341,7 +1365,7 @@ NATS handles all ephemeral messaging with 1-hour TTL. All data expires automatic
       "consumers_active": 1,
       "messages_per_second": 0.5
     },
-    "embeddings.create": {
+    "documents.embeddings": {
       "pending_messages": 15,
       "consumers_active": 2, 
       "messages_per_second": 3.2
@@ -1433,7 +1457,8 @@ This structure balances comprehensiveness with simplicity, making it easy for ne
 │   │   ├── main.py                    # Worker application entry point
 │   │   ├── handlers/                  # Background task handlers
 │   │   │   ├── __init__.py
-│   │   │   ├── documents.py           # Download PDFs, LangChain document loaders & text splitters
+│   │   │   ├── documents.py           # Download PDFs and extract raw text using LangChain document loaders
+│   │   │   ├── chunks.py              # Text chunking and metadata extraction using LangChain text splitters
 │   │   │   ├── embeddings.py          # Create embeddings using GoogleGenerativeAIEmbeddings
 │   │   │   └── answers.py             # Generate answers using ChatGoogleGenerativeAI + RAG chain
 │   │   ├── Dockerfile
