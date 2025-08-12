@@ -1,0 +1,26 @@
+# Simplified Worker Dockerfile without build dependencies
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Set work directory
+WORKDIR /app
+
+# Copy requirements file
+COPY services/worker/requirements.txt ./requirements.txt
+
+# Install Python dependencies directly with pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY services/worker/ .
+COPY shared/ ./shared/
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Run the worker
+CMD ["python", "main.py"]

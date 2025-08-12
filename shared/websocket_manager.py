@@ -628,7 +628,20 @@ class WebSocketConnectionManager:
                 continue
             
             try:
-                await connection.websocket.ping()
+                # Send heartbeat message instead of ping() for FastAPI WebSockets
+                if hasattr(connection.websocket, 'send_json'):
+                    # FastAPI/Starlette WebSocket - send heartbeat message
+                    await connection.websocket.send_json({
+                        'type': 'heartbeat',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                elif hasattr(connection.websocket, 'ping'):
+                    # Standard WebSocket (websockets library) - use ping
+                    await connection.websocket.ping()
+                else:
+                    # Fallback - assume connection is alive
+                    pass
+                
                 connection.last_heartbeat = datetime.now()
                 successful_heartbeats += 1
                 

@@ -57,14 +57,15 @@ class WebSocketClient:
             self.logger.info(f"Connecting to WebSocket: {self.ws_base_url}")
             
             # Build WebSocket URL with session ID
-            ws_url = f"{self.ws_base_url}/ws/connect?session_id={self.session_id}"
+            ws_url = f"{self.ws_base_url}/api/v1/connect?session_id={self.session_id}"
             
-            # Connect to WebSocket
+            # Connect to WebSocket with faster timeouts
             self.websocket = await websockets.connect(
                 ws_url,
                 ping_interval=30,
                 ping_timeout=10,
-                close_timeout=10
+                close_timeout=5,
+                open_timeout=5  # Faster connection timeout
             )
             
             self.connected = True
@@ -72,6 +73,7 @@ class WebSocketClient:
             
             # Update session state
             st.session_state.websocket_connected = True
+            st.session_state.websocket_connecting = False
             
             self.logger.info("WebSocket connected successfully")
             
@@ -85,6 +87,7 @@ class WebSocketClient:
             self.connected = False
             self.connecting = False
             st.session_state.websocket_connected = False
+            st.session_state.websocket_connecting = False
             return False
     
     async def disconnect(self):
@@ -97,6 +100,7 @@ class WebSocketClient:
             
             self.connected = False
             st.session_state.websocket_connected = False
+            st.session_state.websocket_connecting = False
             
             self.logger.info("WebSocket disconnected")
             
@@ -162,11 +166,13 @@ class WebSocketClient:
             self.logger.info("WebSocket connection closed")
             self.connected = False
             st.session_state.websocket_connected = False
+            st.session_state.websocket_connecting = False
             
         except Exception as e:
             self.logger.error(f"Error listening for messages: {e}")
             self.connected = False
             st.session_state.websocket_connected = False
+            st.session_state.websocket_connecting = False
     
     async def _handle_message(self, data: Dict[str, Any]):
         """
@@ -184,6 +190,8 @@ class WebSocketClient:
             await self._handle_answer_chunk(data)
         elif message_type == 'answer_complete':
             await self._handle_answer_complete(data)
+        elif message_type == 'connection_established':
+            await self._handle_connection_established(data)
         elif message_type == 'authentication_success':
             await self._handle_auth_success(data)
         elif message_type == 'authentication_error':
@@ -192,8 +200,11 @@ class WebSocketClient:
             await self._handle_error(data)
         elif message_type == 'pong':
             await self._handle_pong(data)
+        elif message_type == 'heartbeat':
+            await self._handle_heartbeat(data)
         else:
-            self.logger.warning(f"Unknown message type: {message_type}")
+            # Log more details about unknown messages for debugging
+            self.logger.warning(f"Unknown message type: '{message_type}' in message: {data}")
     
     async def _handle_answer_chunk(self, data: Dict[str, Any]):
         """Handle streaming answer chunk"""
@@ -235,6 +246,16 @@ class WebSocketClient:
         except Exception as e:
             self.logger.error(f"Error handling complete answer: {e}")
     
+    async def _handle_connection_established(self, data: Dict[str, Any]):
+        """Handle connection establishment"""
+        connection_id = data.get('connection_id')
+        session_id = data.get('session_id')
+        self.logger.info(f"WebSocket connection established: {connection_id}")
+        st.session_state.websocket_authenticated = True
+        st.session_state.websocket_connected = True
+        st.session_state.websocket_connecting = False
+    
+    
     async def _handle_auth_success(self, data: Dict[str, Any]):
         """Handle authentication success"""
         self.logger.info("WebSocket authentication successful")
@@ -262,6 +283,11 @@ class WebSocketClient:
     async def _handle_pong(self, data: Dict[str, Any]):
         """Handle pong response"""
         self.logger.debug("Received pong from server")
+    
+    async def _handle_heartbeat(self, data: Dict[str, Any]):
+        """Handle heartbeat message from server"""
+        self.logger.debug("Received heartbeat from server")
+        # Heartbeat messages help keep the connection alive - no specific action needed
     
     def get_queued_messages(self) -> List[Dict[str, Any]]:
         """
@@ -310,14 +336,20 @@ class WebSocketClient:
     
     async def _websocket_main_loop(self):
         """Main WebSocket connection loop"""
+        retry_count = 0
         while self.should_run:
             try:
                 # Attempt connection
                 if not self.connected:
                     success = await self.connect()
                     if not success:
-                        await asyncio.sleep(5)  # Wait before retry
+                        # Use exponential backoff with faster initial retries
+                        retry_count += 1
+                        wait_time = min(1 + (retry_count * 0.5), 5)  # Start at 1.5s, max 5s
+                        await asyncio.sleep(wait_time)
                         continue
+                    else:
+                        retry_count = 0  # Reset on successful connection
                 
                 # Listen for messages
                 await self.listen_for_messages()
@@ -326,7 +358,11 @@ class WebSocketClient:
                 self.logger.error(f"WebSocket main loop error: {e}")
                 self.connected = False
                 st.session_state.websocket_connected = False
-                await asyncio.sleep(5)  # Wait before retry
+                st.session_state.websocket_connecting = False
+                # Use exponential backoff for errors too
+                retry_count += 1
+                wait_time = min(1 + (retry_count * 0.5), 5)
+                await asyncio.sleep(wait_time)
     
     async def send_ping(self) -> bool:
         """
@@ -349,8 +385,17 @@ class WebSocketClient:
             'connecting': self.connecting,
             'authenticated': st.session_state.get('websocket_authenticated', False),
             'session_id': self.session_id,
-            'ws_url': f"{self.ws_base_url}/ws/connect"
+            'ws_url': f"{self.ws_base_url}/api/v1/connect"
         }
+    
+    def sync_status_to_session_state(self):
+        """Synchronize WebSocket status to Streamlit session state"""
+        try:
+            st.session_state.websocket_connected = self.connected
+            st.session_state.websocket_connecting = self.connecting
+            st.session_state.websocket_authenticated = st.session_state.get('websocket_authenticated', False)
+        except Exception as e:
+            self.logger.debug(f"Status sync failed (expected in background thread): {e}")
 
 
 # Global WebSocket client instance
@@ -379,6 +424,9 @@ def initialize_websocket_integration():
     """Initialize WebSocket integration in Streamlit session state"""
     if 'websocket_connected' not in st.session_state:
         st.session_state.websocket_connected = False
+    
+    if 'websocket_connecting' not in st.session_state:
+        st.session_state.websocket_connecting = False
     
     if 'websocket_authenticated' not in st.session_state:
         st.session_state.websocket_authenticated = False
@@ -410,21 +458,41 @@ def process_websocket_messages(chat_interface):
             chat_interface.add_streaming_message(chunk, is_complete=False)
             
         elif message_type == 'answer_complete':
-            # Complete the streaming message
+            # Complete the streaming message using update method to avoid double icons
             answer = message.get('answer', '')
             sources = message.get('sources', [])
             confidence = message.get('confidence_score')
             
-            # Add complete assistant message
-            assistant_message = {
-                'type': 'assistant',
-                'content': answer,
-                'timestamp': datetime.now().strftime("%H:%M:%S"),
-                'sources': sources,
-                'confidence_score': confidence,
-                'complete': True
-            }
-            st.session_state.chat_history.append(assistant_message)
+            # Update the existing streaming message instead of adding new one
+            if hasattr(chat_interface, 'update_streaming_message'):
+                chat_interface.update_streaming_message(
+                    content=answer,
+                    sources=sources,
+                    confidence_score=confidence,
+                    is_complete=True
+                )
+            else:
+                # Fallback to direct update if method not available
+                if (st.session_state.chat_history and 
+                    st.session_state.chat_history[-1].get('type') == 'assistant' and
+                    not st.session_state.chat_history[-1].get('complete', False)):
+                    # Update existing streaming message
+                    st.session_state.chat_history[-1]['content'] = answer
+                    st.session_state.chat_history[-1]['complete'] = True
+                    st.session_state.chat_history[-1]['timestamp'] = datetime.now().strftime("%H:%M:%S")
+                    st.session_state.chat_history[-1]['sources'] = sources
+                    st.session_state.chat_history[-1]['confidence_score'] = confidence
+                else:
+                    # Add new message if no streaming placeholder exists
+                    assistant_message = {
+                        'type': 'assistant',
+                        'content': answer,
+                        'timestamp': datetime.now().strftime("%H:%M:%S"),
+                        'sources': sources,
+                        'confidence_score': confidence,
+                        'complete': True
+                    }
+                    st.session_state.chat_history.append(assistant_message)
             
         elif message_type == 'error':
             # Add error message
@@ -450,5 +518,31 @@ def ensure_websocket_connection():
     # Start connection if not already running
     if not ws_client.connected and not ws_client.connecting:
         ws_client.start_background_connection()
+    
+    # Return True if connected or actively connecting (optimistic)
+    # The actual WebSocket will handle streaming when ready
+    return ws_client.connected or ws_client.connecting
+
+
+def update_websocket_status():
+    """Update WebSocket status in session state from client"""
+    if not st.session_state.get('session_id'):
+        st.session_state.websocket_connected = False
+        st.session_state.websocket_connecting = False
+        return
+    
+    try:
+        config = st.session_state.get('config', {})
+        session_id = st.session_state.session_id
         
-    return ws_client.connected
+        # Get WebSocket client
+        ws_client = get_websocket_client(config, session_id)
+        
+        # Update status from client
+        st.session_state.websocket_connected = ws_client.connected
+        st.session_state.websocket_connecting = ws_client.connecting
+        
+    except Exception as e:
+        # Default to disconnected on error
+        st.session_state.websocket_connected = False
+        st.session_state.websocket_connecting = False

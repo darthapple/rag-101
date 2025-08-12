@@ -132,7 +132,6 @@ def initialize_session_state():
     if 'system_status' not in st.session_state:
         st.session_state.system_status = {
             'api': 'unknown',
-            'nats': 'unknown', 
             'websocket': 'unknown',
             'last_check': None
         }
@@ -215,30 +214,34 @@ def render_sidebar():
             # Auto-refresh every 30 seconds
             st_autorefresh(interval=st.session_state.config['auto_refresh_interval'] * 1000, key="status_refresh")
         
-        # Render status indicators
-        for service, status in st.session_state.system_status.items():
-            if service == 'last_check':
-                continue
-                
-            if status == 'healthy':
-                status_class = 'status-healthy'
-                status_text = '🟢 Healthy'
-            elif status == 'warning':
-                status_class = 'status-warning' 
-                status_text = '🟡 Warning'
-            elif status == 'error':
-                status_class = 'status-error'
-                status_text = '🔴 Error'
-            else:
-                status_class = 'status-warning'
-                status_text = '🟡 Unknown'
-            
-            st.markdown(f"""
-            <div>
-                <span class="status-indicator {status_class}"></span>
-                <strong>{service.upper()}:</strong> {status_text}
-            </div>
-            """, unsafe_allow_html=True)
+        # Update WebSocket status before displaying
+        try:
+            from components.websocket_client import update_websocket_status
+            update_websocket_status()
+        except ImportError:
+            pass  # WebSocket client may not be available
+        
+        # Render status indicators (API and WebSocket only)
+        # API Status
+        api_status = st.session_state.system_status.get('api', 'unknown')
+        if api_status == 'healthy':
+            st.markdown('🟢 **API:** Conectada')
+        elif api_status == 'error':
+            st.markdown('🔴 **API:** Erro')
+        else:
+            st.markdown('🟡 **API:** Desconhecida')
+        
+        # WebSocket Status with animated progress
+        if st.session_state.get('websocket_connected', False):
+            st.markdown('🟢 **WebSocket:** Ativo')
+        elif st.session_state.get('websocket_connecting', False):
+            # Show progress bar while connecting
+            st.markdown('🔄 **WebSocket:** Conectando...')
+            progress_placeholder = st.empty()
+            with progress_placeholder:
+                st.progress(0.5, text="Estabelecendo conexão...")
+        else:
+            st.markdown('🟡 **WebSocket:** Inativo')
         
         # Manual refresh button
         if st.button("Refresh Status", type="secondary"):
@@ -268,6 +271,13 @@ def check_system_status():
     except Exception:
         st.session_state.system_status['api'] = 'error'
     
+    # Update WebSocket status from client
+    try:
+        from components.websocket_client import update_websocket_status
+        update_websocket_status()
+    except ImportError:
+        pass  # WebSocket client may not be available
+    
     # Update last check time
     st.session_state.system_status['last_check'] = datetime.now().strftime("%H:%M:%S")
 
@@ -296,10 +306,21 @@ def render_chat_page():
     
     try:
         from components.chat_interface import ChatInterface
-        from components.websocket_client import process_websocket_messages, initialize_websocket_integration
+        from components.websocket_client import process_websocket_messages, initialize_websocket_integration, update_websocket_status
         
         # Initialize WebSocket integration
         initialize_websocket_integration()
+        
+        # Auto-refresh while WebSocket is connecting (first 10 seconds after session creation)
+        if st.session_state.get('websocket_connecting', False) and not st.session_state.get('websocket_connected', False):
+            if 'websocket_check_time' in st.session_state:
+                st.session_state.websocket_check_time = st.session_state.get('websocket_check_time', 0) + 1
+                if st.session_state.websocket_check_time < 10:  # Check for 10 seconds
+                    # Update status and refresh every 2 seconds
+                    update_websocket_status()
+                    import time
+                    time.sleep(2)
+                    st.rerun()
         
         # Create chat interface
         chat_interface = ChatInterface(

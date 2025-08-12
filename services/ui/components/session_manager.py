@@ -9,6 +9,7 @@ import logging
 import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
+import streamlit as st
 
 
 class SessionManager:
@@ -40,7 +41,7 @@ class SessionManager:
             
             # Make request to API service
             response = requests.post(
-                f"{self.api_base_url}/sessions",
+                f"{self.api_base_url}/api/v1/sessions/",
                 json=payload,
                 timeout=10
             )
@@ -48,6 +49,10 @@ class SessionManager:
             if response.status_code == 201:
                 session_data = response.json()
                 self.logger.info(f"Created session: {session_data['session_id']}")
+                
+                # Immediately establish WebSocket connection for this session
+                self._establish_websocket_connection(session_data['session_id'])
+                
                 return session_data
             else:
                 self.logger.error(f"Session creation failed: {response.status_code} - {response.text}")
@@ -72,7 +77,7 @@ class SessionManager:
         """
         try:
             response = requests.get(
-                f"{self.api_base_url}/sessions/{session_id}",
+                f"{self.api_base_url}/api/v1/sessions/{session_id}",
                 timeout=10
             )
             
@@ -98,7 +103,7 @@ class SessionManager:
         """
         try:
             response = requests.get(
-                f"{self.api_base_url}/sessions/{session_id}",
+                f"{self.api_base_url}/api/v1/sessions/{session_id}",
                 timeout=5
             )
             
@@ -123,9 +128,9 @@ class SessionManager:
                 "ttl": additional_ttl or self.session_ttl
             }
             
-            response = requests.patch(
-                f"{self.api_base_url}/sessions/{session_id}",
-                json=payload,
+            response = requests.post(
+                f"{self.api_base_url}/api/v1/sessions/{session_id}/extend",
+                json={"additional_seconds": additional_ttl or self.session_ttl},
                 timeout=10
             )
             
@@ -134,3 +139,33 @@ class SessionManager:
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to extend session: {e}")
             return False
+    
+    def _establish_websocket_connection(self, session_id: str):
+        """
+        Establish WebSocket connection immediately after session creation
+        
+        Args:
+            session_id: Session ID to connect with
+        """
+        try:
+            from .websocket_client import get_websocket_client
+            
+            # Initialize WebSocket connection for this session
+            ws_client = get_websocket_client(self.config, session_id)
+            
+            # Start the background connection
+            ws_client.start_background_connection()
+            
+            # Update session state to indicate WebSocket is connecting
+            st.session_state.websocket_connecting = True
+            st.session_state.websocket_connected = False
+            
+            # Set a flag to trigger auto-refresh for connection status
+            st.session_state.websocket_check_time = 0
+            
+            self.logger.info(f"Initiated WebSocket connection for session {session_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to establish WebSocket connection: {e}")
+            st.session_state.websocket_connecting = False
+            st.session_state.websocket_connected = False

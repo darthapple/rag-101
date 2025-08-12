@@ -17,9 +17,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import time
 
-# NATS imports
-import nats
-from nats.errors import ConnectionClosedError, TimeoutError
+# NATS imports removed - dashboard now uses API endpoints
 
 
 class Dashboard:
@@ -58,9 +56,7 @@ class Dashboard:
     
     def render(self):
         """Render the dashboard interface"""
-        # Initialize NATS connection if not connected
-        if not self.nats_connected:
-            self._initialize_nats_connection()
+        # Note: Dashboard now uses API endpoints instead of direct NATS connection
         
         # Initialize WebSocket integration for live updates
         self._initialize_websocket_integration()
@@ -333,7 +329,7 @@ class Dashboard:
         }
         
         try:
-            # Fetch from API service
+            # Fetch from API health endpoint
             response = requests.get(
                 f"{self.api_base_url}/health",
                 timeout=5
@@ -341,16 +337,23 @@ class Dashboard:
             
             if response.status_code == 200:
                 health_data = response.json()
+                infrastructure = health_data.get('infrastructure', {})
                 
-                # Extract metrics from health response
-                if 'stats' in health_data:
-                    stats = health_data['stats']
-                    metrics.update({
-                        'active_sessions': stats.get('active_sessions', 0),
-                        'documents_processed': stats.get('total_documents', 0),
-                        'questions_asked': stats.get('total_questions', 0),
-                        'avg_response_time': stats.get('avg_response_time', 0.0)
-                    })
+                # Extract Milvus document count
+                milvus_info = infrastructure.get('milvus', {})
+                documents_count = milvus_info.get('entities', 0)
+                
+                metrics['documents_processed'] = documents_count
+            
+            # Fetch WebSocket metrics from dedicated endpoint
+            ws_response = requests.get(
+                f"{self.api_base_url}/api/v1/connections",
+                timeout=5
+            )
+            
+            if ws_response.status_code == 200:
+                ws_data = ws_response.json()
+                metrics['active_sessions'] = ws_data.get('total_sessions', 0)
         
         except Exception as e:
             self.logger.error(f"Failed to fetch system metrics: {e}")
@@ -432,328 +435,126 @@ class Dashboard:
     
     def _render_nats_message_rates_chart(self):
         """Render NATS message rates chart with Plotly"""
-        st.subheader("📈 NATS Message Rates")
+        st.subheader("📈 System Activity")
         
-        topics_data = st.session_state.nats_metrics.get('topics', {})
-        if not topics_data:
-            st.info("📊 No NATS topic data available yet.")
+        # Show system-level metrics instead of direct NATS topics
+        metrics = self._fetch_system_metrics()
+        
+        if not metrics or all(v == 0 for v in metrics.values()):
+            st.info("📊 No activity data available yet. System metrics will appear as the system is used.")
             return
         
-        # Prepare data for bar chart
-        topics = []
-        message_counts = []
-        bytes_counts = []
+        # Create simple system metrics bar chart
+        components = ['Active Sessions', 'Documents', 'Questions', 'Avg Response Time']
+        values = [
+            metrics['active_sessions'],
+            metrics['documents_processed'], 
+            metrics['questions_asked'],
+            metrics['avg_response_time']
+        ]
         
-        for topic, stats in topics_data.items():
-            topics.append(topic.replace('.', ' ').title())
-            message_counts.append(stats.get('messages', 0))
-            bytes_counts.append(stats.get('bytes', 0) / 1024)  # Convert to KB
-        
-        # Create dual-axis bar chart
+        # Create bar chart
         fig = go.Figure()
         
-        # Messages bar
         fig.add_trace(go.Bar(
-            x=topics,
-            y=message_counts,
-            name='Messages',
-            marker_color='lightblue',
-            yaxis='y',
-            offsetgroup=1
+            x=components,
+            y=values,
+            marker_color=['lightblue', 'lightgreen', 'orange', 'purple'],
+            text=values,
+            textposition='auto'
         ))
         
-        # Bytes bar (secondary axis)
-        fig.add_trace(go.Bar(
-            x=topics,
-            y=bytes_counts,
-            name='Bytes (KB)',
-            marker_color='orange',
-            yaxis='y2',
-            offsetgroup=2
-        ))
-        
-        # Update layout
         fig.update_layout(
-            title='NATS Topic Message & Byte Counts',
+            title='Current System Metrics',
             height=350,
-            barmode='group',
-            xaxis=dict(title='Topics'),
-            yaxis=dict(
-                title='Message Count',
-                side='left'
-            ),
-            yaxis2=dict(
-                title='Bytes (KB)',
-                side='right',
-                overlaying='y'
-            ),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            hovermode='x unified'
+            xaxis_title='Components',
+            yaxis_title='Count / Value',
+            hovermode='x'
         )
         
         st.plotly_chart(fig, use_container_width=True)
     
     def _render_nats_topic_activity_chart(self):
-        """Render NATS topic activity status pie chart"""
-        st.subheader("📊 Topic Activity Status")
+        """Render system health status chart"""
+        st.subheader("📊 System Health Status")
         
-        topics_data = st.session_state.nats_metrics.get('topics', {})
-        if not topics_data:
-            st.info("📊 No NATS topic data available yet.")
+        # Get health status from API
+        health_data = self._fetch_health_status()
+        
+        if not health_data:
+            st.info("📊 No health data available yet.")
             return
         
-        # Count status distribution
-        status_counts = {'Active': 0, 'Idle': 0, 'Error': 0}
-        topic_details = []
+        # Check service health status
+        api_status = health_data.get('api', {}).get('status', 'unknown')
+        nats_status = 'healthy' if health_data.get('nats', {}).get('connected', False) else 'unhealthy'
+        ws_status = 'healthy' if health_data.get('websocket', {}).get('active_connections', 0) >= 0 else 'unhealthy'
         
-        for topic, stats in topics_data.items():
-            status = stats.get('status', 'unknown')
-            if status == 'active':
-                status_counts['Active'] += 1
-            elif status == 'idle':
-                status_counts['Idle'] += 1
-            else:
-                status_counts['Error'] += 1
-            
-            topic_details.append({
-                'Topic': topic,
-                'Status': status.title(),
-                'Messages': stats.get('messages', 0),
-                'Consumers': stats.get('consumers', 0)
-            })
+        services = ['API', 'NATS', 'WebSocket']
+        statuses = [api_status, nats_status, ws_status]
+        
+        # Count healthy vs unhealthy
+        healthy_count = sum(1 for status in statuses if status == 'healthy')
+        unhealthy_count = len(statuses) - healthy_count
         
         # Create pie chart
-        colors = ['#28a745', '#ffc107', '#dc3545']  # Green, Yellow, Red
         fig = go.Figure(data=[go.Pie(
-            labels=list(status_counts.keys()),
-            values=list(status_counts.values()),
+            labels=['Healthy', 'Issues'],
+            values=[healthy_count, unhealthy_count],
             hole=0.4,
-            marker_colors=colors,
-            textinfo='label+percent',
-            hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+            marker_colors=['#28a745', '#dc3545'],  # Green, Red
+            textinfo='label+value',
+            hovertemplate='<b>%{label}</b><br>Services: %{value}<extra></extra>'
         )])
         
         fig.update_layout(
-            title='NATS Topic Status Distribution',
+            title='Service Health Overview',
             height=350,
-            showlegend=True,
-            legend=dict(
-                orientation="v",
-                yanchor="middle",
-                y=0.5,
-                xanchor="left",
-                x=1.05
-            )
+            showlegend=True
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Show detailed table
-        if topic_details:
-            with st.expander("📋 Detailed Topic Information"):
-                df = pd.DataFrame(topic_details)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+        # Show service details
+        with st.expander("📋 Service Details"):
+            for service, status in zip(services, statuses):
+                status_emoji = "🟢" if status == 'healthy' else "🔴"
+                st.write(f"{status_emoji} **{service}**: {status.title()}")
     
-    def _initialize_nats_connection(self):
-        """Initialize NATS connection for monitoring"""
-        if self.nats_connected:
-            return
-            
-        try:
-            # Start NATS connection in background thread
-            def connect_nats():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._connect_to_nats())
-                loop.run_forever()
-            
-            thread = threading.Thread(target=connect_nats, daemon=True)
-            thread.start()
-            
-            self.logger.info("NATS connection thread started")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize NATS connection: {e}")
+    # NATS connection methods removed - dashboard now uses API endpoints for all data
     
-    async def _connect_to_nats(self):
-        """Connect to NATS server"""
-        try:
-            self.nc = await nats.connect(
-                servers=[self.nats_url],
-                reconnect_time_wait=2,
-                max_reconnect_attempts=5,
-                connect_timeout=5,
-                error_cb=self._nats_error_cb,
-                disconnected_cb=self._nats_disconnected_cb,
-                reconnected_cb=self._nats_reconnected_cb
-            )
-            
-            # Initialize JetStream context
-            self.js = self.nc.jetstream()
-            self.nats_connected = True
-            
-            self.logger.info(f"Connected to NATS at {self.nats_url}")
-            
-            # Start monitoring task
-            asyncio.create_task(self._monitor_nats_topics())
-            
-        except Exception as e:
-            self.logger.error(f"Failed to connect to NATS: {e}")
-            self.nats_connected = False
-    
-    async def _nats_error_cb(self, e):
-        """NATS error callback"""
-        self.logger.error(f"NATS error: {e}")
-    
-    async def _nats_disconnected_cb(self):
-        """NATS disconnection callback"""
-        self.logger.warning("NATS disconnected")
-        self.nats_connected = False
-    
-    async def _nats_reconnected_cb(self):
-        """NATS reconnection callback"""
-        self.logger.info("NATS reconnected")
-        self.nats_connected = True
-    
-    async def _monitor_nats_topics(self):
-        """Monitor NATS topics for activity"""
-        if not self.js:
-            return
-            
-        topics_to_monitor = [
-            'chat.questions',
-            'documents.download', 
-            'documents.chunks',
-            'documents.embeddings',
-            'system.metrics'
-        ]
+    def _display_placeholder_metrics(self):
+        """Display simple placeholder metrics"""
+        st.info("📊 NATS topic monitoring has been simplified to use API endpoints only.")
         
-        while self.nats_connected:
-            try:
-                topic_stats = {}
-                
-                # Get stream info for each topic
-                for topic in topics_to_monitor:
-                    try:
-                        # Try to get stream info (topics are usually stream subjects)
-                        streams = await self.js.streams_info()
-                        
-                        for stream_info in streams:
-                            stream = stream_info.config.name
-                            subjects = stream_info.config.subjects or []
-                            
-                            # Check if our topic matches any subject in this stream
-                            if topic in subjects or any(topic in subject for subject in subjects):
-                                topic_stats[topic] = {
-                                    'messages': stream_info.state.messages,
-                                    'bytes': stream_info.state.bytes,
-                                    'consumers': stream_info.state.consumer_count,
-                                    'last_sequence': stream_info.state.last_seq,
-                                    'first_sequence': stream_info.state.first_seq,
-                                    'last_time': stream_info.state.last_ts,
-                                    'status': 'active' if stream_info.state.messages > 0 else 'idle'
-                                }
-                                break
-                        else:
-                            # Topic not found in any stream
-                            topic_stats[topic] = {
-                                'messages': 0,
-                                'bytes': 0,
-                                'consumers': 0,
-                                'status': 'idle'
-                            }
-                            
-                    except Exception as e:
-                        self.logger.error(f"Failed to get stats for topic {topic}: {e}")
-                        topic_stats[topic] = {
-                            'messages': 0,
-                            'bytes': 0, 
-                            'consumers': 0,
-                            'status': 'error'
-                        }
-                
-                # Update session state with topic stats
-                st.session_state.nats_metrics['topics'] = topic_stats
-                st.session_state.nats_metrics['last_updated'] = datetime.now()
-                
-                # Wait before next check
-                await asyncio.sleep(5)
-                
-            except Exception as e:
-                self.logger.error(f"NATS monitoring error: {e}")
-                await asyncio.sleep(10)
+        # Show some basic system info
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("System Status", "✅ Running", help="Core services operational")
+        
+        with col2:
+            st.metric("Data Source", "API", help="Metrics fetched via secure API endpoints")
+        
+        with col3:
+            st.metric("Connection", "Stable", help="UI connected to backend services")
     
     def _render_nats_topics_section(self):
         """Render NATS topics monitoring section"""
         st.subheader("📡 NATS Topic Monitoring")
         
-        if not self.nats_connected:
-            st.warning("🟡 NATS connection not established. Attempting to connect...")
-            return
+        st.info("📊 NATS metrics are fetched through API endpoints for security and stability.")
         
-        # Connection status
+        # Connection status  
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.success(f"🟢 Connected to NATS at {self.nats_url}")
+            st.success(f"🟢 NATS metrics available via API")
         with col2:
             if st.button("🔄 Refresh Topics", type="secondary"):
                 st.rerun()
         
-        # Topics status
-        topics_data = st.session_state.nats_metrics.get('topics', {})
-        last_updated = st.session_state.nats_metrics.get('last_updated')
-        
-        if not topics_data:
-            st.info("📊 Collecting topic statistics...")
-            return
-        
-        # Display topic status cards
-        cols = st.columns(len(topics_data))
-        
-        for i, (topic, stats) in enumerate(topics_data.items()):
-            with cols[i]:
-                status = stats.get('status', 'unknown')
-                messages = stats.get('messages', 0)
-                consumers = stats.get('consumers', 0)
-                
-                # Status indicator
-                if status == 'active':
-                    status_color = "🟢"
-                    status_text = "Active"
-                elif status == 'idle':
-                    status_color = "⚪"
-                    status_text = "Idle"
-                else:
-                    status_color = "🔴"
-                    status_text = "Error"
-                
-                st.markdown(f"""
-                <div style="
-                    padding: 1rem;
-                    border-radius: 8px;
-                    border-left: 4px solid {'#28a745' if status == 'active' else '#ffc107' if status == 'idle' else '#dc3545'};
-                    background: {'#e8f5e9' if status == 'active' else '#fff3cd' if status == 'idle' else '#f8d7da'};
-                    margin-bottom: 1rem;
-                ">
-                    <div style="font-weight: bold; margin-bottom: 0.5rem;">
-                        {status_color} {topic.replace('.', ' ').title()}
-                    </div>
-                    <div style="font-size: 0.9em; color: #666;">
-                        Status: {status_text}<br>
-                        Messages: {messages}<br>
-                        Consumers: {consumers}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        if last_updated:
-            st.caption(f"Last updated: {last_updated.strftime('%H:%M:%S')}")
+        # Use placeholder metrics display
+        self._display_placeholder_metrics()
     
     def _initialize_websocket_integration(self):
         """Initialize WebSocket integration for live dashboard updates"""

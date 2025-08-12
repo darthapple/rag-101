@@ -44,6 +44,10 @@ class ChatInterface:
     
     def _render_connection_status(self):
         """Render connection status indicators"""
+        # Update WebSocket status from client before displaying
+        from .websocket_client import update_websocket_status
+        update_websocket_status()
+        
         status_col1, status_col2, status_col3 = st.columns(3)
         
         with status_col1:
@@ -53,8 +57,13 @@ class ChatInterface:
                 st.error("🔴 API Desconectada")
         
         with status_col2:
+            # Check WebSocket status with connecting state
             if st.session_state.get('websocket_connected', False):
                 st.success("🟢 WebSocket Ativo")
+            elif st.session_state.get('websocket_connecting', False):
+                # Show animated spinner while connecting
+                with st.spinner("WebSocket Conectando..."):
+                    st.info("⏳ Estabelecendo conexão...")
             else:
                 st.warning("🟡 WebSocket Inativo")
         
@@ -128,11 +137,22 @@ class ChatInterface:
     
     def _render_question_input(self):
         """Render modern question input using chat_input"""
-        # Chat input at the bottom
+        # Show warning if WebSocket is still connecting
+        ws_connected = st.session_state.get('websocket_connected', False)
+        ws_connecting = st.session_state.get('websocket_connecting', False)
+        
+        if ws_connecting and not ws_connected:
+            st.warning("⏳ **Aguarde:** WebSocket está conectando... O chat estará disponível em instantes.")
+        elif not ws_connected and not ws_connecting:
+            st.info("💡 **Dica:** WebSocket desconectado. As respostas podem demorar mais usando modo de consulta alternativo.")
+        
+        # Chat input at the bottom - disable if processing or WebSocket connecting
+        input_disabled = st.session_state.get('processing_question', False) or (ws_connecting and not ws_connected)
+        
         question = st.chat_input(
-            placeholder="Digite sua pergunta sobre protocolos médicos...",
+            placeholder="Digite sua pergunta sobre protocolos médicos..." if not input_disabled else "Aguarde a conexão...",
             key="chat_input",
-            disabled=st.session_state.get('processing_question', False)
+            disabled=input_disabled
         )
         
         # Advanced options in expander
@@ -181,17 +201,13 @@ class ChatInterface:
             }
             st.session_state.chat_history.append(user_message)
             
-            # Add thinking message
-            self.add_thinking_message("Processando sua pergunta...")
+            # Add processing message with better feedback
+            self.add_thinking_message("🤔 Analisando sua pergunta...")
             
             # Submit question to API
             payload = {
                 "question": question,
-                "priority": priority,
-                "context": {
-                    "use_websocket": use_websocket,
-                    "ui_session": True
-                }
+                "session_id": self.session_id
             }
             
             headers = {
@@ -200,13 +216,13 @@ class ChatInterface:
             }
             
             response = requests.post(
-                f"{self.api_base_url}/questions",
+                f"{self.api_base_url}/api/v1/questions/",
                 json=payload,
                 headers=headers,
                 timeout=30
             )
             
-            if response.status_code == 202:
+            if response.status_code == 200:
                 question_data = response.json()
                 question_id = question_data['question_id']
                 
@@ -239,34 +255,34 @@ class ChatInterface:
         try:
             from .websocket_client import get_websocket_client, ensure_websocket_connection
             
+            # Update thinking message to show waiting for answer
+            self.update_thinking_message("📡 Aguardando resposta via WebSocket...")
+            
             # Ensure WebSocket connection
             if ensure_websocket_connection():
                 # WebSocket is active, add a placeholder for streaming
                 self.add_streaming_message("", is_complete=False)
                 
+                # Remove thinking message since we now have streaming placeholder
+                self.remove_thinking_message()
+                
                 # WebSocket will handle the streaming via background processing
                 self.logger.info(f"WebSocket handling real-time answer for question {question_id}")
                 
-                # Set up timeout fallback
-                import threading
-                import time
-                
-                def fallback_polling():
-                    time.sleep(10)  # Wait 10 seconds for WebSocket
-                    if not self._is_answer_complete(question_id):
-                        self.logger.info("WebSocket timeout, falling back to polling")
-                        self._poll_for_answer(question_id, "")
-                
-                # Start fallback in background
-                fallback_thread = threading.Thread(target=fallback_polling)
-                fallback_thread.daemon = True
-                fallback_thread.start()
+                # Note: Fallback polling disabled since WebSocket should work reliably now
+                # If WebSocket fails, the user can retry the question
             else:
+                # Update thinking message for polling mode
+                self.update_thinking_message("📞 WebSocket indisponível, consultando via API...")
+                
                 # Fall back to polling if WebSocket unavailable
                 self.logger.warning("WebSocket unavailable, using polling")
                 self._poll_for_answer(question_id, "")
                 
         except ImportError:
+            # Update thinking message for polling mode
+            self.update_thinking_message("📞 Usando modo de consulta direta...")
+            
             # Fall back to polling if WebSocket client not available
             self.logger.warning("WebSocket client not available, using polling")
             self._poll_for_answer(question_id, "")
@@ -280,6 +296,10 @@ class ChatInterface:
             max_attempts = 15  # 30 seconds total
             
             for attempt in range(max_attempts):
+                # Update thinking message with progress
+                progress = f"🔄 Consultando resposta... ({attempt + 1}/{max_attempts})"
+                self.update_thinking_message(progress)
+                
                 time.sleep(2)
                 
                 response = requests.get(
@@ -290,16 +310,24 @@ class ChatInterface:
                 if response.status_code == 200:
                     answer_data = response.json()
                     
-                    # Add complete assistant message
-                    assistant_message = {
-                        'type': 'assistant',
-                        'content': answer_data['answer'],
-                        'timestamp': datetime.now().strftime("%H:%M:%S"),
-                        'sources': answer_data.get('sources', []),
-                        'confidence_score': answer_data.get('confidence_score'),
-                        'complete': True
-                    }
-                    st.session_state.chat_history.append(assistant_message)
+                    # Add complete assistant message (check if session state exists)
+                    try:
+                        assistant_message = {
+                            'type': 'assistant',
+                            'content': answer_data['answer'],
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'sources': answer_data.get('sources', []),
+                            'confidence_score': answer_data.get('confidence_score'),
+                            'complete': True
+                        }
+                        
+                        # Only add to session state if we have access to it
+                        if hasattr(st.session_state, 'chat_history'):
+                            st.session_state.chat_history.append(assistant_message)
+                        else:
+                            self.logger.warning("Cannot access session state from background thread")
+                    except Exception as se:
+                        self.logger.warning(f"Session state access failed: {se}")
                     return
                 
                 elif response.status_code == 202:
@@ -309,12 +337,18 @@ class ChatInterface:
                 elif response.status_code == 404:
                     continue  # Question not found yet
             
-            # Timeout
-            self._add_error_message("Timeout: A resposta está demorando mais que o esperado. Tente novamente.")
+            # Timeout - try to add error message safely
+            try:
+                self._add_error_message("Timeout: A resposta está demorando mais que o esperado. Tente novamente.")
+            except Exception as se:
+                self.logger.error(f"Cannot add error message from background thread: {se}")
             
         except Exception as e:
             self.logger.error(f"Failed to get answer: {e}")
-            self._add_error_message(f"Erro ao buscar resposta: {str(e)}")
+            try:
+                self._add_error_message(f"Erro ao buscar resposta: {str(e)}")
+            except Exception as se:
+                self.logger.error(f"Cannot add error message from background thread: {se}")
     
     def add_thinking_message(self, message: str):
         """Add a thinking/processing message to chat history"""
@@ -330,6 +364,17 @@ class ChatInterface:
         if (st.session_state.chat_history and 
             st.session_state.chat_history[-1].get('type') == 'thinking'):
             st.session_state.chat_history.pop()
+    
+    def update_thinking_message(self, message: str):
+        """Update the last thinking message or add new one"""
+        if (st.session_state.chat_history and 
+            st.session_state.chat_history[-1].get('type') == 'thinking'):
+            # Update existing thinking message
+            st.session_state.chat_history[-1]['content'] = message
+            st.session_state.chat_history[-1]['timestamp'] = datetime.now().strftime("%H:%M:%S")
+        else:
+            # Add new thinking message
+            self.add_thinking_message(message)
     
     def add_streaming_message(self, content: str, is_complete: bool = False):
         """Add or update a streaming message in chat history"""
@@ -353,6 +398,44 @@ class ChatInterface:
                 'confidence_score': None
             }
             st.session_state.chat_history.append(streaming_msg)
+    
+    def update_streaming_message(self, content: str, sources: list = None, confidence_score: float = None, is_complete: bool = True):
+        """Update the current streaming message with complete data"""
+        if (st.session_state.chat_history and 
+            st.session_state.chat_history[-1].get('type') == 'assistant' and
+            not st.session_state.chat_history[-1].get('complete', False)):
+            # Update existing streaming message with complete data
+            st.session_state.chat_history[-1]['content'] = content
+            st.session_state.chat_history[-1]['complete'] = is_complete
+            st.session_state.chat_history[-1]['timestamp'] = datetime.now().strftime("%H:%M:%S")
+            if sources:
+                st.session_state.chat_history[-1]['sources'] = sources
+            if confidence_score is not None:
+                st.session_state.chat_history[-1]['confidence_score'] = confidence_score
+        else:
+            # No streaming message exists, add complete message
+            assistant_message = {
+                'type': 'assistant',
+                'content': content,
+                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                'sources': sources or [],
+                'confidence_score': confidence_score,
+                'complete': True
+            }
+            st.session_state.chat_history.append(assistant_message)
+    
+    def _get_websocket_status(self) -> bool:
+        """Get current WebSocket connection status"""
+        try:
+            from .websocket_client import get_websocket_client
+            
+            if not hasattr(st.session_state, 'config') or not hasattr(st.session_state, 'session_id'):
+                return False
+            
+            ws_client = get_websocket_client(st.session_state.config, st.session_state.session_id)
+            return ws_client.connected if ws_client else False
+        except:
+            return False
     
     def _add_error_message(self, error_msg: str):
         """Add error message to chat history"""
@@ -418,6 +501,10 @@ class ChatInterface:
 
 def render_connection_status():
     """Render connection status indicators in sidebar"""
+    # Update WebSocket status before displaying
+    from .websocket_client import update_websocket_status
+    update_websocket_status()
+    
     # Connection status in sidebar
     with st.sidebar:
         st.subheader("🔌 Status da Conexão")
@@ -428,11 +515,13 @@ def render_connection_status():
         else:
             st.error("🔴 API Desconectada")
         
-        # WebSocket Status
+        # WebSocket Status (consistent with chat header)
         if st.session_state.get('websocket_connected', False):
-            st.success("🟢 WebSocket Conectado")
+            st.success("🟢 WebSocket Ativo")
+        elif st.session_state.get('websocket_connecting', False):
+            st.info("🔄 WebSocket Conectando...")
         else:
-            st.warning("🟡 WebSocket Desconectado")
+            st.warning("🟡 WebSocket Inativo")
         
         # Session Status
         if st.session_state.get('session_id'):

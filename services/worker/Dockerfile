@@ -5,11 +5,20 @@
 FROM python:3.11-slim as builder
 
 # Install system dependencies for building
+# Configure proxy if provided via build args
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ENV http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY} \
+    no_proxy=${NO_PROXY}
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && unset http_proxy https_proxy no_proxy
 
 # Install Poetry
 RUN pip install poetry==1.7.1
@@ -32,10 +41,19 @@ RUN poetry install --only=main --no-root && rm -rf $POETRY_CACHE_DIR
 FROM python:3.11-slim as production
 
 # Install runtime system dependencies
+# Configure proxy if provided via build args
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ENV http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY} \
+    no_proxy=${NO_PROXY}
+
 RUN apt-get update && apt-get install -y \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && apt-get clean \
+    && unset http_proxy https_proxy no_proxy
 
 # Create non-root user
 RUN groupadd -r worker && useradd -r -g worker -d /app -s /sbin/nologin worker
