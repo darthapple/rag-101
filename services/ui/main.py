@@ -144,9 +144,9 @@ def initialize_session_state():
 def render_header():
     """Render application header"""
     st.markdown("""
-    <div class="main-header">
-        <h1>🏥 RAG-101 Medical Q&A System</h1>
-        <p>Intelligent document analysis for Brazilian clinical protocols (PCDT)</p>
+    <div class="main-header" style="padding: 1rem 0; margin-bottom: 1rem;">
+        <h2>🏥 RAG-101 Medical Q&A System</h2>
+        <p style="margin: 0; font-size: 0.9rem;">Intelligent document analysis for Brazilian clinical protocols (PCDT)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -208,12 +208,7 @@ def render_sidebar():
         # System status
         st.subheader("📊 System Status")
         
-        # Auto-refresh toggle
-        auto_refresh = st.checkbox("Auto-refresh", value=True)
-        
-        if auto_refresh:
-            # Auto-refresh every 30 seconds
-            st_autorefresh(interval=st.session_state.config['auto_refresh_interval'] * 1000, key="status_refresh")
+        # Note: Auto-refresh controls moved to Dashboard component
         
         # Update WebSocket status before displaying
         try:
@@ -368,7 +363,7 @@ def render_document_page():
 
 def render_dashboard_page():
     """Render system dashboard page"""
-    st.header("📊 System Dashboard")
+    # No header here - dashboard component handles its own layout
     
     try:
         from components.dashboard import Dashboard
@@ -379,32 +374,9 @@ def render_dashboard_page():
         
         dashboard.render()
         
-    except ImportError:
-        st.warning("Dashboard component not yet implemented.")
-        
-        # Placeholder metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Active Sessions", "0", delta="0")
-        
-        with col2:
-            st.metric("Documents Processed", "0", delta="0")
-        
-        with col3:
-            st.metric("Questions Asked", "0", delta="0")
-        
-        with col4:
-            st.metric("System Uptime", "0s", delta="0")
-        
-        st.code("""
-        # Placeholder for system dashboard
-        # Will be implemented in next tasks:
-        # - Real-time metrics visualization
-        # - NATS topic activity monitoring
-        # - Connection status indicators  
-        # - Performance charts with Plotly
-        """)
+    except ImportError as e:
+        st.error(f"Failed to load dashboard component: {e}")
+        st.info("Make sure all dependencies are installed and services are running.")
 
 
 def render_settings_page():

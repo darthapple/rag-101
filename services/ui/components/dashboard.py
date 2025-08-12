@@ -1,681 +1,430 @@
 """
-Dashboard Component
+Dashboard Component - Block-based Workflow Design
 
-System monitoring dashboard with real-time metrics visualization.
-Displays system health, performance metrics, and NATS topic monitoring with activity indicators.
+Real-time monitoring dashboard with connected workflow blocks showing:
+- Milvus document count
+- Document processing workflow blocks (download → chunks → embeddings → complete)
+- Q&A workflow blocks (questions → answers)
+- Interactive forms below workflows
+- Top-right refresh controls
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
 import requests
 import logging
-import asyncio
-import threading
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
 import time
+from typing import Dict, Any, Optional
+from datetime import datetime
 
-# NATS imports removed - dashboard now uses API endpoints
+logger = logging.getLogger("ui.dashboard")
 
 
 class Dashboard:
-    """System monitoring dashboard component"""
+    """Block-based workflow dashboard component"""
     
     def __init__(self, config: Dict[str, Any]):
         """Initialize dashboard component"""
         self.config = config
         self.api_base_url = config['api_base_url']
-        self.nats_url = config.get('nats_url', 'nats://localhost:4222')
         self.logger = logging.getLogger("ui.dashboard")
         
-        # NATS connection
-        self.nc: Optional[nats.NATS] = None
-        self.js = None
-        self.nats_connected = False
+        # Initialize dashboard state
+        if 'dashboard_auto_refresh' not in st.session_state:
+            st.session_state.dashboard_auto_refresh = True
+        if 'dashboard_refresh_interval' not in st.session_state:
+            st.session_state.dashboard_refresh_interval = 5
+        if 'last_streams_data' not in st.session_state:
+            st.session_state.last_streams_data = None
         
-        # Initialize metrics storage
-        if 'dashboard_metrics' not in st.session_state:
-            st.session_state.dashboard_metrics = {
-                'timestamps': [],
-                'response_times': [],
-                'active_sessions': [],
-                'questions_asked': [],
-                'documents_processed': []
-            }
+        # Add custom CSS for workflow blocks
+        self._inject_custom_css()
+    
+    def _inject_custom_css(self):
+        """Inject custom CSS for workflow block styling"""
+        st.markdown("""
+        <style>
+        .workflow-block {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            margin: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
         
-        # Initialize NATS metrics
-        if 'nats_metrics' not in st.session_state:
-            st.session_state.nats_metrics = {
-                'topics': {},
-                'last_activity': {},
-                'message_rates': {},
-                'last_updated': None
-            }
+        .workflow-block-download {
+            border-color: #1f77b4;
+            background-color: #e8f4f8;
+        }
+        
+        .workflow-block-chunks {
+            border-color: #ff7f0e;
+            background-color: #fff2e8;
+        }
+        
+        .workflow-block-embeddings {
+            border-color: #2ca02c;
+            background-color: #e8f5e8;
+        }
+        
+        .workflow-block-complete {
+            border-color: #d62728;
+            background-color: #f8e8e8;
+        }
+        
+        .workflow-block-questions {
+            border-color: #3498db;
+            background-color: #e8f2ff;
+        }
+        
+        .workflow-block-answers {
+            border-color: #2ecc71;
+            background-color: #e8f8f2;
+        }
+        
+        .workflow-arrow {
+            font-size: 24px;
+            color: #666;
+            text-align: center;
+            padding: 20px 0;
+        }
+        
+        .block-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: black;
+        }
+        
+        .block-count {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .refresh-container {
+            text-align: right;
+            margin-bottom: 20px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
     
     def render(self):
-        """Render the dashboard interface"""
-        # Note: Dashboard now uses API endpoints instead of direct NATS connection
-        
-        # Initialize WebSocket integration for live updates
-        self._initialize_websocket_integration()
-        
-        # System overview cards
-        self._render_overview_cards()
+        """Render the block-based dashboard interface"""
+        # Header with title and top-right refresh controls
+        self._render_header_with_refresh()
         
         st.divider()
         
-        # NATS topic monitoring section
-        self._render_nats_topics_section()
+        # Fetch current data from streams endpoint
+        streams_data = self._fetch_streams_data()
         
-        st.divider()
-        
-        # NATS visualization charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            self._render_nats_message_rates_chart()
-        
-        with col2:
-            self._render_nats_topic_activity_chart()
-        
-        st.divider()
-        
-        # Performance charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            self._render_response_time_chart()
-        
-        with col2:
-            self._render_activity_chart()
-        
-        st.divider()
-        
-        # System health and logs
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            self._render_system_health()
-        
-        with col2:
-            self._render_recent_activity()
-        
-        # Auto-refresh logic
+        if streams_data:
+            # Document processing workflow blocks
+            self._render_document_workflow_blocks(streams_data)
+            
+            st.divider()
+            
+            # Add Document form between workflows
+            self._render_add_document_form()
+            
+            st.divider()
+            
+            # Q&A workflow blocks
+            self._render_qa_workflow_blocks(streams_data)
+            
+            st.divider()
+            
+            # Question form at bottom
+            self._render_question_form()
+            
+        else:
+            st.error("⚠️ Unable to fetch dashboard data. Please check if the API service is running.")
+            
+        # Handle auto-refresh
         self._handle_auto_refresh()
     
-    def _render_overview_cards(self):
-        """Render system overview metric cards"""
-        st.subheader("📊 System Overview")
-        
-        # Fetch current metrics
-        metrics = self._fetch_system_metrics()
-        
-        col1, col2, col3, col4 = st.columns(4)
+    def _render_header_with_refresh(self):
+        """Render compact header with title on left and refresh controls on right"""
+        col1, col2 = st.columns([2, 1])
         
         with col1:
-            sessions_count = metrics.get('active_sessions', 0)
-            sessions_delta = self._calculate_delta('active_sessions', sessions_count)
+            st.subheader("📊 RAG System Dashboard")
+            # Add document count inline with title
+            streams_data = st.session_state.get('last_streams_data')
+            if streams_data:
+                doc_count = streams_data.get('milvus_documents', 0)
+                st.markdown(f'<p style="font-size: 1.2rem; margin: 0; color: white;">Documents Milvus: {doc_count:,}</p>', unsafe_allow_html=True)
+        
+        with col2:
+            # Refresh controls in a compact layout
+            refresh_col1, refresh_col2, refresh_col3 = st.columns([2, 2, 1])
+            
+            with refresh_col1:
+                st.session_state.dashboard_auto_refresh = st.checkbox(
+                    "Auto-refresh", 
+                    value=st.session_state.dashboard_auto_refresh,
+                    key="dashboard_auto_refresh_checkbox"
+                )
+            
+            with refresh_col2:
+                refresh_options = {
+                    "1s": 1,
+                    "5s": 5, 
+                    "10s": 10,
+                    "30s": 30,
+                    "1m": 60
+                }
+                
+                selected_interval = st.selectbox(
+                    "Refresh",
+                    options=list(refresh_options.keys()),
+                    index=1,  # Default to 5s
+                    disabled=not st.session_state.dashboard_auto_refresh,
+                    label_visibility="collapsed",
+                    key="dashboard_refresh_interval_select"
+                )
+                
+                st.session_state.dashboard_refresh_interval = refresh_options[selected_interval]
+            
+            with refresh_col3:
+                if st.button("🔄", help="Refresh Now", key="dashboard_refresh_button"):
+                    st.session_state.last_streams_data = None  # Force refresh
+                    st.rerun()
+            
+            # Show last updated time below refresh controls, right-aligned
+            if st.session_state.last_streams_data:
+                last_updated = st.session_state.last_streams_data.get('timestamp', 'Unknown')
+                if last_updated != 'Unknown':
+                    try:
+                        dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                        time_str = dt.strftime('%H:%M:%S')
+                        st.markdown(f'<p style="text-align: right; font-size: 0.8rem; color: #666; margin: 0;">Last updated: {time_str}</p>', unsafe_allow_html=True)
+                    except:
+                        st.markdown('<p style="text-align: right; font-size: 0.8rem; color: #666; margin: 0;">Last updated: Recent</p>', unsafe_allow_html=True)
+    
+    def _fetch_streams_data(self) -> Optional[Dict[str, Any]]:
+        """Fetch data from streams API endpoint"""
+        try:
+            response = requests.get(
+                f"{self.api_base_url}/api/v1/streams/",
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                st.session_state.last_streams_data = data
+                return data
+            else:
+                self.logger.error(f"Streams API returned {response.status_code}")
+                return st.session_state.last_streams_data  # Return cached data
+                
+        except Exception as e:
+            self.logger.error(f"Failed to fetch streams data: {e}")
+            return st.session_state.last_streams_data  # Return cached data
+    
+    def _render_document_count(self, streams_data: Dict[str, Any]):
+        """Render document count metric"""
+        doc_count = streams_data.get('milvus_documents', 0)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
             st.metric(
-                "Active Sessions",
-                sessions_count,
-                delta=sessions_delta,
-                help="Number of currently active user sessions"
+                label="📚 Documents in Milvus",
+                value=f"{doc_count:,}",
+                help="Total number of document chunks in vector database"
+            )
+    
+    def _render_document_workflow_blocks(self, streams_data: Dict[str, Any]):
+        """Render document processing workflow as connected blocks"""
+        st.subheader("Document Processing Workflow")
+        
+        workflow = streams_data.get('document_workflow', {})
+        
+        # Create 7 columns: block, arrow, block, arrow, block, arrow, block
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1, 2, 1, 2, 1, 2])
+        
+        with col1:
+            self._render_workflow_block(
+                title="Download",
+                count=workflow.get('downloads', 0),
+                block_type="download",
+                help_text="PDFs downloaded from URLs"
             )
         
         with col2:
-            documents_count = metrics.get('documents_processed', 0)
-            docs_delta = self._calculate_delta('documents_processed', documents_count)
-            st.metric(
-                "Documents Processed",
-                documents_count,
-                delta=docs_delta,
-                help="Total number of documents processed successfully"
-            )
+            st.markdown('<div class="workflow-arrow">───▶</div>', unsafe_allow_html=True)
         
         with col3:
-            questions_count = metrics.get('questions_asked', 0)
-            questions_delta = self._calculate_delta('questions_asked', questions_count)
-            st.metric(
-                "Questions Asked",
-                questions_count,
-                delta=questions_delta,
-                help="Total number of questions submitted"
+            self._render_workflow_block(
+                title="Chunks",
+                count=workflow.get('chunks', 0),
+                block_type="chunks",
+                help_text="Text chunks created"
             )
         
         with col4:
-            avg_response_time = metrics.get('avg_response_time', 0)
-            response_delta = self._calculate_delta('avg_response_time', avg_response_time)
-            st.metric(
-                "Avg Response Time",
-                f"{avg_response_time:.1f}s",
-                delta=f"{response_delta:.1f}s" if response_delta else None,
-                help="Average question response time"
+            st.markdown('<div class="workflow-arrow">───▶</div>', unsafe_allow_html=True)
+        
+        with col5:
+            self._render_workflow_block(
+                title="Embeddings",
+                count=workflow.get('embeddings', 0),
+                block_type="embeddings",
+                help_text="Vector embeddings generated"
+            )
+        
+        with col6:
+            st.markdown('<div class="workflow-arrow">───▶</div>', unsafe_allow_html=True)
+        
+        with col7:
+            self._render_workflow_block(
+                title="Complete",
+                count=workflow.get('complete', 0),
+                block_type="complete",
+                help_text="Fully processed documents"
             )
     
-    def _render_response_time_chart(self):
-        """Render response time trend chart"""
-        st.subheader("⏱️ Response Time Trend")
+    def _render_qa_workflow_blocks(self, streams_data: Dict[str, Any]):
+        """Render Q&A workflow as connected blocks"""
+        st.subheader("Q&A Workflow")
         
-        if not st.session_state.dashboard_metrics['timestamps']:
-            st.info("No data available yet. Metrics will appear as the system is used.")
-            return
+        qa_workflow = streams_data.get('qa_workflow', {})
         
-        # Create DataFrame from metrics
-        df = pd.DataFrame({
-            'timestamp': st.session_state.dashboard_metrics['timestamps'],
-            'response_time': st.session_state.dashboard_metrics['response_times']
-        })
-        
-        # Create line chart
-        fig = px.line(
-            df,
-            x='timestamp',
-            y='response_time',
-            title='Response Time Over Time',
-            labels={'response_time': 'Response Time (seconds)', 'timestamp': 'Time'}
-        )
-        
-        fig.update_layout(
-            height=300,
-            showlegend=False,
-            xaxis_title="Time",
-            yaxis_title="Response Time (s)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    def _render_activity_chart(self):
-        """Render system activity chart"""
-        st.subheader("📈 System Activity")
-        
-        if not st.session_state.dashboard_metrics['timestamps']:
-            st.info("No activity data available yet.")
-            return
-        
-        # Create DataFrame
-        df = pd.DataFrame({
-            'timestamp': st.session_state.dashboard_metrics['timestamps'],
-            'sessions': st.session_state.dashboard_metrics['active_sessions'],
-            'questions': st.session_state.dashboard_metrics['questions_asked']
-        })
-        
-        # Create multi-line chart
-        fig = go.Figure()
-        
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['sessions'],
-            mode='lines+markers',
-            name='Active Sessions',
-            line=dict(color='blue')
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['questions'],
-            mode='lines+markers',
-            name='Questions Asked',
-            line=dict(color='green'),
-            yaxis='y2'
-        ))
-        
-        fig.update_layout(
-            title='System Activity Over Time',
-            height=300,
-            xaxis_title='Time',
-            yaxis=dict(
-                title='Active Sessions',
-                side='left'
-            ),
-            yaxis2=dict(
-                title='Questions Asked',
-                side='right',
-                overlaying='y'
-            )
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    def _render_system_health(self):
-        """Render system health status"""
-        st.subheader("🏥 System Health")
-        
-        # Fetch health data
-        health_data = self._fetch_health_status()
-        
-        # API Service Health
-        api_status = health_data.get('api', {})
-        api_healthy = api_status.get('status') == 'healthy'
-        
-        st.markdown(f"""
-        **API Service**
-        <span style="color: {'green' if api_healthy else 'red'}">
-        {'🟢 Healthy' if api_healthy else '🔴 Unhealthy'}
-        </span>
-        """, unsafe_allow_html=True)
-        
-        if api_status.get('response_time'):
-            st.caption(f"Response time: {api_status['response_time']:.3f}s")
-        
-        # NATS Status
-        nats_status = health_data.get('nats', {})
-        nats_healthy = nats_status.get('connected', False)
-        
-        st.markdown(f"""
-        **NATS Messaging**
-        <span style="color: {'green' if nats_healthy else 'red'}">
-        {'🟢 Connected' if nats_healthy else '🔴 Disconnected'}
-        </span>
-        """, unsafe_allow_html=True)
-        
-        # WebSocket Status
-        ws_status = health_data.get('websocket', {})
-        ws_connections = ws_status.get('active_connections', 0)
-        
-        st.markdown(f"""
-        **WebSocket Connections**
-        <span style="color: {'green' if ws_connections > 0 else 'orange'}">
-        {ws_connections} active
-        </span>
-        """, unsafe_allow_html=True)
-        
-        # System uptime (placeholder)
-        uptime = health_data.get('uptime', 'Unknown')
-        st.markdown(f"**System Uptime:** {uptime}")
-    
-    def _render_recent_activity(self):
-        """Render recent system activity log"""
-        st.subheader("📝 Recent Activity")
-        
-        # Placeholder activity log (would come from actual logging system)
-        activities = [
-            {"time": "14:30:25", "event": "New session created", "user": "user_123"},
-            {"time": "14:29:52", "event": "Document processed", "doc": "diabetes-protocol.pdf"},
-            {"time": "14:28:41", "event": "Question answered", "response_time": "3.2s"},
-            {"time": "14:27:15", "event": "WebSocket connected", "session": "sess_456"},
-            {"time": "14:25:03", "event": "Rate limit triggered", "ip": "192.168.1.100"},
-        ]
-        
-        for activity in activities:
-            time_str = activity["time"]
-            event = activity["event"]
-            
-            if "session created" in event:
-                st.markdown(f"🔵 `{time_str}` - {event}")
-            elif "processed" in event:
-                st.markdown(f"🟢 `{time_str}` - {event}")
-            elif "answered" in event:
-                st.markdown(f"💬 `{time_str}` - {event} ({activity.get('response_time', 'N/A')})")
-            elif "connected" in event:
-                st.markdown(f"🔌 `{time_str}` - {event}")
-            elif "rate limit" in event:
-                st.markdown(f"⚠️ `{time_str}` - {event}")
-            else:
-                st.markdown(f"📝 `{time_str}` - {event}")
-        
-        # Refresh button
-        if st.button("🔄 Refresh Activity", type="secondary", key="refresh_activity"):
-            st.rerun()
-    
-    def _fetch_system_metrics(self) -> Dict[str, Any]:
-        """Fetch system metrics from API services"""
-        metrics = {
-            'active_sessions': 0,
-            'documents_processed': 0,
-            'questions_asked': 0,
-            'avg_response_time': 0.0
-        }
-        
-        try:
-            # Fetch from API health endpoint
-            response = requests.get(
-                f"{self.api_base_url}/health",
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                health_data = response.json()
-                infrastructure = health_data.get('infrastructure', {})
-                
-                # Extract Milvus document count
-                milvus_info = infrastructure.get('milvus', {})
-                documents_count = milvus_info.get('entities', 0)
-                
-                metrics['documents_processed'] = documents_count
-            
-            # Fetch WebSocket metrics from dedicated endpoint
-            ws_response = requests.get(
-                f"{self.api_base_url}/api/v1/connections",
-                timeout=5
-            )
-            
-            if ws_response.status_code == 200:
-                ws_data = ws_response.json()
-                metrics['active_sessions'] = ws_data.get('total_sessions', 0)
-        
-        except Exception as e:
-            self.logger.error(f"Failed to fetch system metrics: {e}")
-        
-        return metrics
-    
-    def _fetch_health_status(self) -> Dict[str, Any]:
-        """Fetch detailed health status"""
-        health_data = {
-            'api': {'status': 'unknown'},
-            'nats': {'connected': False},
-            'websocket': {'active_connections': 0},
-            'uptime': 'Unknown'
-        }
-        
-        try:
-            # Check API health
-            start_time = time.time()
-            response = requests.get(
-                f"{self.api_base_url}/health",
-                timeout=5
-            )
-            response_time = time.time() - start_time
-            
-            if response.status_code == 200:
-                health_data['api'] = {
-                    'status': 'healthy',
-                    'response_time': response_time
-                }
-                
-                # Extract additional health info
-                api_health = response.json()
-                health_data.update(api_health)
-            else:
-                health_data['api']['status'] = 'unhealthy'
-        
-        except Exception as e:
-            self.logger.error(f"Health check failed: {e}")
-            health_data['api']['status'] = 'error'
-        
-        return health_data
-    
-    def _calculate_delta(self, metric_name: str, current_value: float) -> float:
-        """Calculate delta for metric display"""
-        if metric_name not in st.session_state.dashboard_metrics:
-            return 0
-        
-        history = st.session_state.dashboard_metrics.get(metric_name, [])
-        if len(history) < 2:
-            return 0
-        
-        previous_value = history[-2] if len(history) > 1 else 0
-        return current_value - previous_value
-    
-    def _handle_auto_refresh(self):
-        """Handle dashboard auto-refresh"""
-        # Store current metrics for trend analysis
-        current_time = datetime.now()
-        metrics = self._fetch_system_metrics()
-        
-        # Update metrics history
-        max_history = 50  # Keep last 50 data points
-        
-        for key in ['timestamps', 'active_sessions', 'questions_asked', 'documents_processed', 'response_times']:
-            if key not in st.session_state.dashboard_metrics:
-                st.session_state.dashboard_metrics[key] = []
-        
-        # Add current data point
-        st.session_state.dashboard_metrics['timestamps'].append(current_time)
-        st.session_state.dashboard_metrics['active_sessions'].append(metrics['active_sessions'])
-        st.session_state.dashboard_metrics['questions_asked'].append(metrics['questions_asked'])
-        st.session_state.dashboard_metrics['documents_processed'].append(metrics['documents_processed'])
-        st.session_state.dashboard_metrics['response_times'].append(metrics['avg_response_time'])
-        
-        # Trim history to max length
-        for key, values in st.session_state.dashboard_metrics.items():
-            if len(values) > max_history:
-                st.session_state.dashboard_metrics[key] = values[-max_history:]
-    
-    def _render_nats_message_rates_chart(self):
-        """Render NATS message rates chart with Plotly"""
-        st.subheader("📈 System Activity")
-        
-        # Show system-level metrics instead of direct NATS topics
-        metrics = self._fetch_system_metrics()
-        
-        if not metrics or all(v == 0 for v in metrics.values()):
-            st.info("📊 No activity data available yet. System metrics will appear as the system is used.")
-            return
-        
-        # Create simple system metrics bar chart
-        components = ['Active Sessions', 'Documents', 'Questions', 'Avg Response Time']
-        values = [
-            metrics['active_sessions'],
-            metrics['documents_processed'], 
-            metrics['questions_asked'],
-            metrics['avg_response_time']
-        ]
-        
-        # Create bar chart
-        fig = go.Figure()
-        
-        fig.add_trace(go.Bar(
-            x=components,
-            y=values,
-            marker_color=['lightblue', 'lightgreen', 'orange', 'purple'],
-            text=values,
-            textposition='auto'
-        ))
-        
-        fig.update_layout(
-            title='Current System Metrics',
-            height=350,
-            xaxis_title='Components',
-            yaxis_title='Count / Value',
-            hovermode='x'
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    def _render_nats_topic_activity_chart(self):
-        """Render system health status chart"""
-        st.subheader("📊 System Health Status")
-        
-        # Get health status from API
-        health_data = self._fetch_health_status()
-        
-        if not health_data:
-            st.info("📊 No health data available yet.")
-            return
-        
-        # Check service health status
-        api_status = health_data.get('api', {}).get('status', 'unknown')
-        nats_status = 'healthy' if health_data.get('nats', {}).get('connected', False) else 'unhealthy'
-        ws_status = 'healthy' if health_data.get('websocket', {}).get('active_connections', 0) >= 0 else 'unhealthy'
-        
-        services = ['API', 'NATS', 'WebSocket']
-        statuses = [api_status, nats_status, ws_status]
-        
-        # Count healthy vs unhealthy
-        healthy_count = sum(1 for status in statuses if status == 'healthy')
-        unhealthy_count = len(statuses) - healthy_count
-        
-        # Create pie chart
-        fig = go.Figure(data=[go.Pie(
-            labels=['Healthy', 'Issues'],
-            values=[healthy_count, unhealthy_count],
-            hole=0.4,
-            marker_colors=['#28a745', '#dc3545'],  # Green, Red
-            textinfo='label+value',
-            hovertemplate='<b>%{label}</b><br>Services: %{value}<extra></extra>'
-        )])
-        
-        fig.update_layout(
-            title='Service Health Overview',
-            height=350,
-            showlegend=True
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Show service details
-        with st.expander("📋 Service Details"):
-            for service, status in zip(services, statuses):
-                status_emoji = "🟢" if status == 'healthy' else "🔴"
-                st.write(f"{status_emoji} **{service}**: {status.title()}")
-    
-    # NATS connection methods removed - dashboard now uses API endpoints for all data
-    
-    def _display_placeholder_metrics(self):
-        """Display simple placeholder metrics"""
-        st.info("📊 NATS topic monitoring has been simplified to use API endpoints only.")
-        
-        # Show some basic system info
-        col1, col2, col3 = st.columns(3)
+        # Create 3 columns: questions block, arrow, answers block
+        col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 2])
         
         with col1:
-            st.metric("System Status", "✅ Running", help="Core services operational")
-        
-        with col2:
-            st.metric("Data Source", "API", help="Metrics fetched via secure API endpoints")
-        
-        with col3:
-            st.metric("Connection", "Stable", help="UI connected to backend services")
-    
-    def _render_nats_topics_section(self):
-        """Render NATS topics monitoring section"""
-        st.subheader("📡 NATS Topic Monitoring")
-        
-        st.info("📊 NATS metrics are fetched through API endpoints for security and stability.")
-        
-        # Connection status  
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.success(f"🟢 NATS metrics available via API")
-        with col2:
-            if st.button("🔄 Refresh Topics", type="secondary"):
-                st.rerun()
-        
-        # Use placeholder metrics display
-        self._display_placeholder_metrics()
-    
-    def _initialize_websocket_integration(self):
-        """Initialize WebSocket integration for live dashboard updates"""
-        try:
-            from .websocket_client import get_websocket_client, initialize_websocket_integration, ensure_websocket_connection
-            
-            # Initialize WebSocket if not already done
-            if not st.session_state.get('websocket_dashboard_initialized', False):
-                initialize_websocket_integration()
-                st.session_state.websocket_dashboard_initialized = True
-            
-            # Check for live metric updates
-            if ensure_websocket_connection():
-                self._process_websocket_metrics()
-                
-        except ImportError:
-            # WebSocket client not available, dashboard will use polling only
-            self.logger.debug("WebSocket client not available for dashboard")
-    
-    def _process_websocket_metrics(self):
-        """Process WebSocket messages for live metric updates"""
-        try:
-            from .websocket_client import get_websocket_client
-            
-            ws_client = get_websocket_client()
-            if not ws_client:
-                return
-            
-            # Get queued messages
-            messages = ws_client.get_queued_messages()
-            
-            for message in messages:
-                if message.get('type') == 'metrics_update':
-                    # Update dashboard metrics from WebSocket
-                    metrics_data = message.get('data', {})
-                    
-                    # Update NATS metrics if available
-                    if 'nats_topics' in metrics_data:
-                        st.session_state.nats_metrics['topics'] = metrics_data['nats_topics']
-                        st.session_state.nats_metrics['last_updated'] = datetime.now()
-                    
-                    # Update system metrics if available
-                    if 'system_metrics' in metrics_data:
-                        system_metrics = metrics_data['system_metrics']
-                        current_time = datetime.now()
-                        
-                        # Add to dashboard metrics history
-                        self._add_metric_point(current_time, system_metrics)
-                
-                elif message.get('type') == 'system_alert':
-                    # Handle system alerts
-                    alert_data = message.get('data', {})
-                    self._display_system_alert(alert_data)
-                    
-        except Exception as e:
-            self.logger.error(f"Failed to process WebSocket metrics: {e}")
-    
-    def _add_metric_point(self, timestamp: datetime, metrics: Dict[str, Any]):
-        """Add a metric data point to the dashboard history"""
-        max_history = 50
-        
-        # Ensure all metric lists exist
-        for key in ['timestamps', 'active_sessions', 'questions_asked', 'documents_processed', 'response_times']:
-            if key not in st.session_state.dashboard_metrics:
-                st.session_state.dashboard_metrics[key] = []
-        
-        # Add new data point
-        st.session_state.dashboard_metrics['timestamps'].append(timestamp)
-        st.session_state.dashboard_metrics['active_sessions'].append(metrics.get('active_sessions', 0))
-        st.session_state.dashboard_metrics['questions_asked'].append(metrics.get('questions_asked', 0))
-        st.session_state.dashboard_metrics['documents_processed'].append(metrics.get('documents_processed', 0))
-        st.session_state.dashboard_metrics['response_times'].append(metrics.get('avg_response_time', 0.0))
-        
-        # Trim history to max length
-        for key, values in st.session_state.dashboard_metrics.items():
-            if len(values) > max_history:
-                st.session_state.dashboard_metrics[key] = values[-max_history:]
-    
-    def _display_system_alert(self, alert_data: Dict[str, Any]):
-        """Display system alerts on dashboard"""
-        alert_type = alert_data.get('level', 'info')
-        message = alert_data.get('message', 'System notification')
-        
-        if alert_type == 'error':
-            st.error(f"🚨 System Alert: {message}")
-        elif alert_type == 'warning':
-            st.warning(f"⚠️ System Warning: {message}")
-        elif alert_type == 'success':
-            st.success(f"✅ System Update: {message}")
-        else:
-            st.info(f"ℹ️ System Info: {message}")
-    
-    def get_websocket_status(self) -> Dict[str, Any]:
-        """Get WebSocket connection status for dashboard display"""
-        try:
-            from .websocket_client import get_websocket_client
-            
-            ws_client = get_websocket_client()
-            if ws_client:
-                return {
-                    'connected': ws_client.connected,
-                    'last_message': ws_client.last_message_time,
-                    'message_count': len(ws_client.get_queued_messages())
-                }
-        except ImportError:
+            # Empty column for centering
             pass
         
-        return {
-            'connected': False,
-            'last_message': None,
-            'message_count': 0
-        }
-
-
-def format_uptime(seconds: float) -> str:
-    """Format uptime in human-readable format"""
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-    elif seconds < 3600:
-        return f"{seconds/60:.0f}m"
-    elif seconds < 86400:
-        return f"{seconds/3600:.1f}h"
-    else:
-        return f"{seconds/86400:.1f}d"
+        with col2:
+            self._render_workflow_block(
+                title="❓ Questions",
+                count=qa_workflow.get('questions', 0),
+                block_type="questions",
+                help_text="Questions submitted by users"
+            )
+        
+        with col3:
+            st.markdown('<div class="workflow-arrow">───▶</div>', unsafe_allow_html=True)
+        
+        with col4:
+            self._render_workflow_block(
+                title="💬 Answers",
+                count=qa_workflow.get('answers_total', 0),
+                block_type="answers",
+                help_text="Answers generated by AI"
+            )
+        
+        with col5:
+            # Empty column for centering
+            pass
+    
+    def _render_workflow_block(self, title: str, count: int, block_type: str, help_text: str):
+        """Render individual workflow block"""
+        block_html = f"""
+        <div class="workflow-block workflow-block-{block_type}" title="{help_text}">
+            <div class="block-title">{title}</div>
+            <div class="block-count">{count} msgs</div>
+        </div>
+        """
+        st.markdown(block_html, unsafe_allow_html=True)
+    
+    def _render_add_document_form(self):
+        """Render document upload form between workflows"""
+        st.subheader("📄 Add Document")
+        
+        with st.form("dashboard_document_form_unique", clear_on_submit=True):
+            doc_url = st.text_input(
+                "Document URL",
+                placeholder="https://example.com/document.pdf",
+                help="Enter a PDF URL to process and add to the knowledge base"
+            )
+            
+            submit_doc = st.form_submit_button("🔄 Process Document", type="primary")
+            
+            if submit_doc and doc_url:
+                self._submit_document(doc_url)
+    
+    def _render_question_form(self):
+        """Render question form at bottom"""
+        st.subheader("❓ Ask Question")
+        
+        with st.form("dashboard_question_form_unique", clear_on_submit=True):
+            question = st.text_area(
+                "Your Question",
+                placeholder="Ask a question about the medical documents...",
+                height=100,
+                help="Submit a question to get an AI-generated answer"
+            )
+            
+            submit_question = st.form_submit_button("💬 Get Answer", type="primary")
+            
+            if submit_question and question:
+                self._submit_question(question)
+    
+    def _submit_document(self, url: str):
+        """Submit document URL for processing"""
+        try:
+            response = requests.post(
+                f"{self.api_base_url}/api/v1/document-download",
+                json=[url],
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                st.success(f"✅ Document submitted for processing: {url}")
+                st.info("📊 Check the workflow blocks above to monitor processing progress.")
+            else:
+                st.error(f"❌ Failed to submit document: HTTP {response.status_code}")
+                
+        except Exception as e:
+            st.error(f"❌ Error submitting document: {str(e)}")
+    
+    def _submit_question(self, question: str):
+        """Submit question and display answer"""
+        if not hasattr(st.session_state, 'session_id') or not st.session_state.session_id:
+            st.error("❌ Please start a session first (use the sidebar)")
+            return
+            
+        try:
+            # Submit question
+            response = requests.post(
+                f"{self.api_base_url}/api/v1/questions/",
+                json={
+                    "question": question,
+                    "session_id": st.session_state.session_id
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                st.success("✅ Question submitted successfully!")
+                st.info("💬 Answer will be delivered via WebSocket. Check Q&A workflow blocks above.")
+                
+                # Show the question for reference
+                with st.expander("📝 Your Question", expanded=True):
+                    st.write(question)
+                    
+            else:
+                st.error(f"❌ Failed to submit question: HTTP {response.status_code}")
+                
+        except Exception as e:
+            st.error(f"❌ Error submitting question: {str(e)}")
+    
+    def _handle_auto_refresh(self):
+        """Handle auto-refresh functionality"""
+        if st.session_state.dashboard_auto_refresh:
+            from streamlit_autorefresh import st_autorefresh
+            
+            # Auto-refresh every N seconds (only if auto-refresh is enabled)
+            st_autorefresh(
+                interval=st.session_state.dashboard_refresh_interval * 1000,
+                key="dashboard_autorefresh"
+            )

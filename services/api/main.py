@@ -31,7 +31,14 @@ from simple_config import get_config
 from shared.infrastructure import InfrastructureManager
 
 # Import routers
-from routers import documents, sessions, questions, health, websocket
+from routers import (
+    documents_router as documents,
+    sessions_router as sessions, 
+    questions_router as questions,
+    health_router as health,
+    websocket_router as websocket,
+    streams_router as streams
+)
 
 # Import WebSocket manager
 from shared.websocket_manager import get_websocket_manager
@@ -99,11 +106,12 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
-app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
-app.include_router(questions.router, prefix="/api/v1/questions", tags=["questions"])
-app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
-app.include_router(websocket.router, prefix="/api/v1", tags=["websocket"])
+app.include_router(documents, prefix="/api/v1", tags=["documents"])
+app.include_router(sessions, prefix="/api/v1/sessions", tags=["sessions"])
+app.include_router(questions, prefix="/api/v1/questions", tags=["questions"])
+app.include_router(health, prefix="/api/v1/health", tags=["health"])
+app.include_router(websocket, prefix="/api/v1", tags=["websocket"])
+app.include_router(streams, prefix="/api/v1/streams", tags=["streams"])
 
 
 # Health check endpoint
