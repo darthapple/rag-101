@@ -387,11 +387,48 @@ class Dashboard:
         except Exception as e:
             st.error(f"❌ Error submitting document: {str(e)}")
     
+    def _create_session(self, nickname: str) -> Optional[Dict[str, Any]]:
+        """Create a new session for question submission"""
+        try:
+            payload = {
+                "nickname": nickname,
+                "ttl": 3600  # 1 hour default
+            }
+            
+            response = requests.post(
+                f"{self.api_base_url}/api/v1/sessions/",
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 201:
+                session_data = response.json()
+                self.logger.info(f"Created session: {session_data['session_id']}")
+                return session_data
+            else:
+                self.logger.error(f"Session creation failed: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to create session: {e}")
+            return None
+    
     def _submit_question(self, question: str):
         """Submit question and display answer"""
+        # Auto-create session if it doesn't exist
         if not hasattr(st.session_state, 'session_id') or not st.session_state.session_id:
-            st.error("❌ Please start a session first (use the sidebar)")
-            return
+            try:
+                session_data = self._create_session("dashboard-user")
+                if session_data:
+                    st.session_state.session_id = session_data['session_id']
+                    st.session_state.session_nickname = session_data['nickname']
+                    st.info("🔄 Created new session for question submission")
+                else:
+                    st.error("❌ Failed to create session for question submission")
+                    return
+            except Exception as e:
+                st.error(f"❌ Session creation failed: {str(e)}")
+                return
             
         try:
             # Submit question
