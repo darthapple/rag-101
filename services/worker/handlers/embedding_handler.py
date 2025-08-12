@@ -90,7 +90,7 @@ class EmbeddingHandler(BaseHandler):
             # Initialize embeddings client
             # Use the full model name for the newer API version
             self.embeddings_client = GoogleGenerativeAIEmbeddings(
-                model=f"models/{self.embedding_model}",
+                model=self.embedding_model,
                 google_api_key=self.config.gemini_api_key
             )
             

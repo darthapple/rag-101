@@ -19,6 +19,8 @@ import json
 import uuid
 import re
 
+from nats.aio.msg import Msg
+
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, SystemMessage
 from langchain.prompts import PromptTemplate
@@ -159,11 +161,56 @@ RESPOSTA:""",
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Publish answers to session-specific topics"""
-        session_id = data.get('session_id')
-        if session_id:
-            return f"{self.messaging.topics['answers']}.{session_id}"
+        """Disable base handler's result publishing - we handle it in process_message"""
         return None
+    
+    async def _publish_answer_result(self, subject: str, result: Dict[str, Any], message_id: str):
+        """
+        Publish answer result in WebSocket-compatible format
+        
+        Args:
+            subject: NATS subject to publish to
+            result: Answer result data
+            message_id: Original message ID
+        """
+        try:
+            self.logger.debug(f"Formatting answer message for subject: {subject}")
+            # Format answer for WebSocket consumption (direct format, not wrapped)
+            answer_message = {
+                'type': 'answer_complete',
+                'question_id': result.get('question_id'),
+                'message_id': result.get('message_id'),
+                'session_id': result.get('session_id'),
+                'answer': result.get('answer', ''),
+                'sources': result.get('sources', []),
+                'confidence_score': result.get('confidence_score'),
+                'generated_at': result.get('generated_at'),
+                'processing_time': result.get('processing_time'),
+                'metadata': result.get('metadata', {}),
+                'model_used': result.get('model_used')
+            }
+            
+            # Serialize and publish directly (skip the base handler's wrapper)
+            payload = json.dumps(answer_message, default=str).encode('utf-8')
+            await self.js.publish(subject, payload)
+            
+            self.logger.info(
+                "Published answer in WebSocket format",
+                message_id=message_id,
+                subject=subject,
+                session_id=result.get('session_id'),
+                answer_length=len(result.get('answer', ''))
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                "Failed to publish answer result",
+                error=e,
+                message_id=message_id,
+                subject=subject,
+                session_id=result.get('session_id')
+            )
+            raise
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -250,6 +297,11 @@ RESPOSTA:""",
                 f"Generated answer for session {session_id} in {processing_time:.2f}s "
                 f"(retrieved {len(retrieved_chunks)} chunks)"
             )
+            
+            # Publish result directly in WebSocket format
+            result_subject = f"chat.answers.{session_id}"
+            self.logger.info(f"Publishing answer to subject: {result_subject}")
+            await self._publish_answer_result(result_subject, result, message_id)
             
             return result
             
