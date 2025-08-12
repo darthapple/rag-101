@@ -37,10 +37,6 @@ class ChatInterface:
         
         # Question input using st.chat_input
         self._render_question_input()
-        
-        # Help and examples
-        with st.expander("💡 Ajuda & Exemplos"):
-            self._render_help_section()
     
     def _render_connection_status(self):
         """Render connection status indicators"""
@@ -88,7 +84,7 @@ class ChatInterface:
             return
         
         # Render message history using st.chat_message
-        for message in st.session_state.chat_history:
+        for idx, message in enumerate(st.session_state.chat_history):
             message_type = message.get('type', 'user')
             content = message.get('content', '')
             timestamp = message.get('timestamp', '')
@@ -101,7 +97,29 @@ class ChatInterface:
             
             elif message_type == 'assistant':
                 with st.chat_message("assistant"):
-                    st.write(content)
+                    # Check if this message should use typing effect
+                    # Ensure message has an ID for tracking typing state
+                    if 'id' not in message:
+                        message['id'] = f"msg_{idx}"
+                    
+                    message_id = message.get('id', f"msg_{len(st.session_state.chat_history)}")
+                    is_complete = message.get('complete', True)
+                    typing_active = st.session_state.get(f"typing_active_{message_id}", False)
+                    
+                    # Simplified typing effect logic
+                    # Show typing effect for messages that are marked for typing (including empty content for loading)
+                    if typing_active and not message.get('typing_complete', False):
+                        self._render_message_with_typing(content, message_id)
+                        # Check if typing is complete (only for non-empty content)
+                        if content:
+                            typing_index = st.session_state.get(f"typing_index_{message_id}", 0)
+                            if typing_index >= len(content):
+                                message['typing_complete'] = True
+                                st.session_state[f"typing_active_{message_id}"] = False
+                    elif content:
+                        # Show complete message immediately (no typing effect needed)
+                        st.write(content)
+                    # If no content and not typing active, show nothing (avoid empty message)
                     
                     # Show confidence score if available
                     confidence = message.get('confidence_score')
@@ -155,31 +173,18 @@ class ChatInterface:
             disabled=input_disabled
         )
         
-        # Advanced options in expander
-        with st.expander("⚙️ Opções Avançadas"):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                priority = st.selectbox(
-                    "Prioridade",
-                    ["normal", "high", "low"],
-                    index=0,
-                    help="Prioridade da pergunta"
-                )
-            
-            with col2:
-                use_websocket = st.checkbox(
-                    "Tempo Real",
-                    value=True,
-                    help="Receber resposta em tempo real via WebSocket"
-                )
-            
-            with col3:
-                if st.button("🗑️ Limpar Chat", type="secondary"):
-                    st.session_state.chat_history = []
-                    if 'processing_question' in st.session_state:
-                        del st.session_state.processing_question
-                    st.rerun()
+        # Simple clear chat button (advanced options removed)
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if st.button("🗑️ Limpar Chat", type="secondary"):
+                st.session_state.chat_history = []
+                if 'processing_question' in st.session_state:
+                    del st.session_state.processing_question
+                st.rerun()
+        
+        # Set default values for removed options
+        priority = "normal"
+        use_websocket = True
         
         # Handle question submission
         if question and question.strip():
@@ -255,12 +260,9 @@ class ChatInterface:
         try:
             from .websocket_client import get_websocket_client, ensure_websocket_connection
             
-            # Update thinking message to show waiting for answer
-            self.update_thinking_message("📡 Aguardando resposta via WebSocket...")
-            
             # Ensure WebSocket connection
             if ensure_websocket_connection():
-                # WebSocket is active, add a placeholder for streaming
+                # WebSocket is active, add a placeholder for streaming with animated loading
                 self.add_streaming_message("", is_complete=False)
                 
                 # Remove thinking message since we now have streaming placeholder
@@ -383,21 +385,33 @@ class ChatInterface:
             st.session_state.chat_history[-1].get('type') == 'assistant' and
             not st.session_state.chat_history[-1].get('complete', False)):
             # Update existing streaming message
-            st.session_state.chat_history[-1]['content'] = content
+            message = st.session_state.chat_history[-1]
+            message['content'] = content
             if is_complete:
-                st.session_state.chat_history[-1]['complete'] = True
-                st.session_state.chat_history[-1]['timestamp'] = datetime.now().strftime("%H:%M:%S")
+                message['complete'] = True
+                message['timestamp'] = datetime.now().strftime("%H:%M:%S")
+                message['typing_complete'] = False  # Enable typing effect
+                # Start typing effect for this message
+                message_id = message.get('id', f"msg_{len(st.session_state.chat_history)-1}")
+                if content:  # Only start typing effect if there's content
+                    self.start_typing_effect(message_id, content)
         else:
             # Add new streaming message
+            message_id = f"msg_{len(st.session_state.chat_history)}"
             streaming_msg = {
+                'id': message_id,
                 'type': 'assistant',
                 'content': content,
                 'timestamp': datetime.now().strftime("%H:%M:%S") if is_complete else '',
                 'complete': is_complete,
                 'sources': [],
-                'confidence_score': None
+                'confidence_score': None,
+                'typing_complete': False  # Always enable typing effect to show loading/typing
             }
             st.session_state.chat_history.append(streaming_msg)
+            
+            # Always start typing effect for streaming messages (even empty ones show spinner)
+            self.start_typing_effect(message_id, content)
     
     def update_streaming_message(self, content: str, sources: list = None, confidence_score: float = None, is_complete: bool = True):
         """Update the current streaming message with complete data"""
@@ -405,24 +419,38 @@ class ChatInterface:
             st.session_state.chat_history[-1].get('type') == 'assistant' and
             not st.session_state.chat_history[-1].get('complete', False)):
             # Update existing streaming message with complete data
-            st.session_state.chat_history[-1]['content'] = content
-            st.session_state.chat_history[-1]['complete'] = is_complete
-            st.session_state.chat_history[-1]['timestamp'] = datetime.now().strftime("%H:%M:%S")
+            message = st.session_state.chat_history[-1]
+            message['content'] = content
+            message['complete'] = is_complete
+            message['timestamp'] = datetime.now().strftime("%H:%M:%S")
+            message['typing_complete'] = False  # Enable typing effect
             if sources:
-                st.session_state.chat_history[-1]['sources'] = sources
+                message['sources'] = sources
             if confidence_score is not None:
-                st.session_state.chat_history[-1]['confidence_score'] = confidence_score
+                message['confidence_score'] = confidence_score
+            
+            # Start typing effect for updated message
+            message_id = message.get('id', f"msg_{len(st.session_state.chat_history)-1}")
+            if content:  # Start typing effect for any content
+                self.start_typing_effect(message_id, content)
         else:
             # No streaming message exists, add complete message
+            message_id = f"msg_{len(st.session_state.chat_history)}"
             assistant_message = {
+                'id': message_id,
                 'type': 'assistant',
                 'content': content,
                 'timestamp': datetime.now().strftime("%H:%M:%S"),
                 'sources': sources or [],
                 'confidence_score': confidence_score,
-                'complete': True
+                'complete': True,
+                'typing_complete': False  # Enable typing effect
             }
             st.session_state.chat_history.append(assistant_message)
+            
+            # Start typing effect for new complete message
+            if content:
+                self.start_typing_effect(message_id, content)
     
     def _get_websocket_status(self) -> bool:
         """Get current WebSocket connection status"""
@@ -446,36 +474,146 @@ class ChatInterface:
         }
         st.session_state.chat_history.append(error_message)
     
-    def _render_help_section(self):
-        """Render help and example questions in Portuguese"""
-        st.markdown("""
-        ### 🔍 Exemplos de Perguntas:
+    def render_typing_message(self, content: str, message_key: str = "typing_msg") -> None:
+        """Render a message with typing effect using a configurable delay"""
+        typing_delay = self.config.get('typing_delay_ms', 100) / 1000  # Convert to seconds
         
-        - **Diabetes**: "Quais são os critérios diagnósticos para diabetes tipo 2?"
-        - **Hipertensão**: "Qual o tratamento recomendado para hipertensão estágio 2?"
-        - **Protocolos**: "Quais protocolos PCDT estão disponíveis para doenças cardiovasculares?"
-        - **Medicamentos**: "Quais são as contraindicações para uso de metformina?"
-        - **Procedimentos**: "Como é feito o diagnóstico de COVID-19 segundo os protocolos?"
+        # Create placeholder for the message
+        if f"typing_placeholder_{message_key}" not in st.session_state:
+            st.session_state[f"typing_placeholder_{message_key}"] = st.empty()
         
-        ### 💡 Dicas para Melhores Resultados:
-        - Seja específico nas suas perguntas
-        - Mencione condições, medicamentos ou procedimentos específicos
-        - Pergunte sobre critérios diagnósticos, diretrizes de tratamento ou contraindicações
-        - O sistema funciona melhor com perguntas sobre protocolos clínicos brasileiros (PCDT)
-        - Use terminologia médica quando apropriado
+        placeholder = st.session_state[f"typing_placeholder_{message_key}"]
         
-        ### 🔄 Como Funciona:
-        1. **Análise**: Sua pergunta é processada e analisada
-        2. **Busca**: Documentos médicos relevantes são pesquisados
-        3. **Geração**: IA gera resposta baseada em protocolos oficiais
-        4. **Transparência**: Fontes e pontuação de confiança são fornecidas
+        # Initialize typing state
+        if f"typing_index_{message_key}" not in st.session_state:
+            st.session_state[f"typing_index_{message_key}"] = 0
         
-        ### ⚙️ Recursos:
-        - **Tempo Real**: Respostas transmitidas via WebSocket
-        - **Fontes**: Links para documentos originais
-        - **Confiança**: Pontuação de confiança da resposta
-        - **Histórico**: Conversa salva na sessão atual
-        """)
+        current_index = st.session_state[f"typing_index_{message_key}"]
+        
+        # Display content up to current index with spinner if not complete
+        if current_index < len(content):
+            partial_content = content[:current_index + 1]
+            
+            # Show spinner alongside the typing text
+            with placeholder.container():
+                col1, col2 = st.columns([1, 20])
+                with col1:
+                    if current_index < len(content) - 1:
+                        st.spinner("")  # Show spinner while typing
+                with col2:
+                    st.markdown(partial_content)
+            
+            # Update index for next render
+            st.session_state[f"typing_index_{message_key}"] = current_index + 1
+            
+            # Auto-refresh to continue typing
+            time.sleep(typing_delay)
+            st.rerun()
+        else:
+            # Typing complete - show final content without spinner
+            with placeholder.container():
+                st.markdown(content)
+            
+            # Clean up typing state
+            if f"typing_index_{message_key}" in st.session_state:
+                del st.session_state[f"typing_index_{message_key}"]
+    
+    def start_typing_effect(self, message_id: str, content: str) -> None:
+        """Start typing effect for a message"""
+        # Initialize typing state for this message
+        st.session_state[f"typing_active_{message_id}"] = True
+        st.session_state[f"typing_content_{message_id}"] = content
+        st.session_state[f"typing_index_{message_id}"] = 0
+    
+    def _render_animated_spinner(self, spinner_key: str = "default") -> str:
+        """Render animated loading dots"""
+        # Initialize spinner state
+        if f"spinner_frame_{spinner_key}" not in st.session_state:
+            st.session_state[f"spinner_frame_{spinner_key}"] = 0
+            st.session_state[f"spinner_last_update_{spinner_key}"] = time.time()
+        
+        current_time = time.time()
+        last_update = st.session_state[f"spinner_last_update_{spinner_key}"]
+        frame = st.session_state[f"spinner_frame_{spinner_key}"]
+        
+        # Update animation frame every 200ms
+        if current_time - last_update >= 0.2:
+            st.session_state[f"spinner_frame_{spinner_key}"] = (frame + 1) % 4
+            st.session_state[f"spinner_last_update_{spinner_key}"] = current_time
+            frame = st.session_state[f"spinner_frame_{spinner_key}"]
+        
+        # Create animated dots pattern
+        dots = ["●", "●", "●"]
+        for i in range(3):
+            if (frame + i) % 4 == 0:
+                dots[i] = "○"  # Empty dot
+        
+        return " ".join(dots)
+    
+    def _render_message_with_typing(self, content: str, message_id: str) -> None:
+        """Render message with typing effect and animated spinner"""
+        if not content:
+            # Show only animated loading spinner when no content yet
+            spinner_text = self._render_animated_spinner(message_id)
+            st.markdown(f"**{spinner_text}**")
+            # Schedule rerun to continue animation
+            time.sleep(0.1)
+            st.rerun()
+            return
+            
+        # Initialize typing state if not exists - be more defensive
+        typing_index_key = f"typing_index_{message_id}"
+        typing_time_key = f"typing_last_update_{message_id}"
+        
+        if typing_index_key not in st.session_state:
+            st.session_state[typing_index_key] = 0
+        if typing_time_key not in st.session_state:
+            st.session_state[typing_time_key] = time.time()
+        
+        current_index = st.session_state.get(typing_index_key, 0)
+        last_update = st.session_state.get(typing_time_key, time.time())
+        typing_delay = self.config.get('typing_delay_ms', 50) / 1000  # Convert to seconds
+        
+        # Check if typing is complete
+        if current_index >= len(content):
+            # Typing complete - show full content
+            st.write(content)
+            # Clean up typing state - be more careful
+            keys_to_delete = [k for k in st.session_state.keys() if k.startswith(f"typing_") and message_id in k]
+            keys_to_delete.extend([k for k in st.session_state.keys() if k.startswith(f"spinner_") and message_id in k])
+            for key in keys_to_delete:
+                try:
+                    del st.session_state[key]
+                except KeyError:
+                    pass  # Key already deleted
+            return
+        
+        # Check if enough time has passed for next character
+        current_time = time.time()
+        if current_time - last_update >= typing_delay:
+            # Time to show next character
+            new_index = min(current_index + 1, len(content))
+            st.session_state[typing_index_key] = new_index
+            st.session_state[typing_time_key] = current_time
+            current_index = new_index
+        
+        # Show content up to current index
+        partial_content = content[:current_index] if current_index > 0 else ""
+        
+        # Only show spinner if no content has been typed yet
+        if current_index == 0:
+            # Show only animated spinner when no typing has started
+            spinner_text = self._render_animated_spinner(message_id)
+            st.markdown(f"**{spinner_text}**")
+        else:
+            # Show only the typed content (no spinner once typing starts)
+            st.write(partial_content)
+        
+        # Schedule rerun if still typing
+        if current_index < len(content):
+            time.sleep(0.01)  # Minimal delay to prevent excessive CPU usage
+            st.rerun()
+    
     
     def get_connection_status(self) -> Dict[str, bool]:
         """Get current connection status"""

@@ -37,7 +37,8 @@ def load_config() -> Dict[str, Any]:
         'nats_url': os.getenv('NATS_URL', 'nats://localhost:4222'),
         'session_ttl': int(os.getenv('SESSION_TTL', '3600')),
         'debug': os.getenv('DEBUG', 'false').lower() == 'true',
-        'auto_refresh_interval': int(os.getenv('AUTO_REFRESH_INTERVAL', '30'))
+        'auto_refresh_interval': int(os.getenv('AUTO_REFRESH_INTERVAL', '30')),
+        'typing_delay_ms': int(os.getenv('TYPING_DELAY_MS', '10'))
     }
 
 
