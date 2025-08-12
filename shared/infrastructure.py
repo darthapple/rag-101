@@ -300,8 +300,8 @@ class InfrastructureManager:
         """Initialize Milvus connection and create collection"""
         try:
             # Connect to Milvus with retry logic
-            max_retries = 3
-            retry_delay = 2.0
+            max_retries = 5  # Increased retries
+            retry_delay = 5.0  # Increased initial delay
             
             for attempt in range(max_retries):
                 try:
@@ -344,6 +344,25 @@ class InfrastructureManager:
                 service_name=self.service_name
             )
             raise
+    
+    async def retry_milvus_connection(self):
+        """Retry Milvus connection if it failed during initialization"""
+        if self.initialization_status['milvus']['initialized']:
+            return True
+            
+        try:
+            await self.init_milvus()
+            self.initialization_status['milvus']['initialized'] = True
+            self.initialization_status['milvus']['error'] = None
+            return True
+        except Exception as e:
+            self.initialization_status['milvus']['error'] = str(e)
+            self.logger.warning(
+                "Milvus retry connection failed",
+                error=e,
+                service_name=self.service_name
+            )
+            return False
     
     async def ensure_milvus_collection(self):
         """Create or verify Milvus collection for medical documents"""

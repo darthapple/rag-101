@@ -52,8 +52,8 @@ poetry run python main.py  # or appropriate start command
 # Create .env file with GEMINI_API_KEY
 echo "GEMINI_API_KEY=your_key_here" > .env
 
-# Deploy all services
-docker-compose -f docker-compose.yml -f docker-compose.services.yml up --build
+# Deploy all services (IMPORTANT: only use docker-compose.yml)
+docker-compose up --build
 ```
 
 ### Service Access

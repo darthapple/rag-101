@@ -102,7 +102,7 @@ app.add_middleware(
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
 app.include_router(questions.router, prefix="/api/v1/questions", tags=["questions"])
-app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
 app.include_router(websocket.router, prefix="/api/v1", tags=["websocket"])
 
 
@@ -110,6 +110,10 @@ app.include_router(websocket.router, prefix="/api/v1", tags=["websocket"])
 @app.get("/health")
 async def health_check():
     """Comprehensive health check endpoint"""
+    # Try to reconnect to Milvus if it's not connected
+    if infra_manager and not infra_manager.initialization_status.get('milvus', {}).get('initialized', False):
+        await infra_manager.retry_milvus_connection()
+    
     return {
         "status": "healthy",
         "service": "rag-api",
