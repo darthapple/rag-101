@@ -101,7 +101,7 @@ class ChunkHandler(BaseHandler):
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """No longer publish via base handler - we publish individual chunks directly"""
+        """Handle publishing manually with delays - don't use base handler auto-publish"""
         return None
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -184,19 +184,22 @@ class ChunkHandler(BaseHandler):
                 page_count=len(pages)
             )
             
-            # Publish each chunk as individual message to embedding topic
+            # Publish each chunk with a shorter 500ms delay for demo purposes
             published_count = 0
             for chunk in all_chunks:
                 try:
-                    # Create individual chunk message
+                    # Apply shorter delay for chunk processing (500ms instead of 10s)
+                    await asyncio.sleep(0.5)  # 500ms delay for chunks
+                    
+                    # Publish chunk message directly
+                    message_id = f"{job_id}_{chunk['chunk_id']}"
                     chunk_message = {
                         'handler': self.handler_name,
-                        'message_id': f"{job_id}_{chunk['chunk_id']}",
+                        'message_id': message_id,
                         'processed_at': datetime.now().isoformat(),
                         'result': chunk
                     }
                     
-                    # Publish directly to embeddings topic
                     import json
                     payload = json.dumps(chunk_message, default=str).encode('utf-8')
                     await self.js.publish('documents.embeddings', payload)
@@ -205,7 +208,7 @@ class ChunkHandler(BaseHandler):
                 except Exception as e:
                     self.logger.error(f"Failed to publish chunk {chunk['chunk_id']}: {e}")
             
-            self.logger.info(f"Published {published_count}/{len(all_chunks)} chunks to embedding topic")
+            self.logger.info(f"Published {published_count}/{len(all_chunks)} chunks to embedding topic with delays")
             
             return {
                 'job_id': job_id,

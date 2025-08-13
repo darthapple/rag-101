@@ -549,6 +549,16 @@ class BaseHandler(ABC):
             result: Result data
             message_id: Original message ID
         """
+        # Add demo delay before publishing to next topic
+        if hasattr(self.config, 'processing_delay') and self.config.processing_delay > 0:
+            self.logger.debug(
+                f"Delaying {self.config.processing_delay}s before publishing to {subject}",
+                message_id=message_id,
+                handler_name=self.handler_name,
+                delay=self.config.processing_delay
+            )
+            await asyncio.sleep(self.config.processing_delay)
+        
         max_retries = 3
         retry_delay = 1.0
         

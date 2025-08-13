@@ -114,8 +114,8 @@ class EmbeddingHandler(BaseHandler):
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Publish completion notifications"""
-        return "embeddings.complete"
+        """Handle publishing manually with custom delay"""
+        return None  # We'll publish manually with 500ms delay
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -211,7 +211,8 @@ class EmbeddingHandler(BaseHandler):
                 f"({success_rate:.1%} success rate)"
             )
             
-            return {
+            # Prepare completion result
+            completion_result = {
                 'job_id': job_id,
                 'url': url,
                 'status': 'completed' if total_errors == 0 else 'partial',
@@ -222,6 +223,28 @@ class EmbeddingHandler(BaseHandler):
                 'batch_results': batch_results,
                 'processed_at': datetime.now().isoformat()
             }
+            
+            # Apply 500ms delay before publishing completion notification
+            await asyncio.sleep(0.5)  # 500ms delay for embeddings
+            
+            # Publish completion notification manually
+            try:
+                completion_message = {
+                    'handler': self.handler_name,
+                    'message_id': job_id,
+                    'processed_at': datetime.now().isoformat(),
+                    'result': completion_result
+                }
+                
+                import json
+                payload = json.dumps(completion_message, default=str).encode('utf-8')
+                await self.js.publish('embeddings.complete', payload)
+                
+                self.logger.debug(f"Published embedding completion for job {job_id} with 500ms delay")
+            except Exception as e:
+                self.logger.warning(f"Failed to publish completion notification: {e}")
+            
+            return completion_result
             
         except EmbeddingGenerationError as e:
             error_msg = f"Embedding generation failed: {str(e)}"
