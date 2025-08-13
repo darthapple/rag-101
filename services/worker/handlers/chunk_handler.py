@@ -301,7 +301,7 @@ class ChunkHandler(BaseHandler):
                     'source_url': url,
                     'page_number': page_number,
                     'diseases': diseases,
-                    'processed_at': int(datetime.now().timestamp()),
+                    'processed_at': datetime.now().isoformat(),
                     'job_id': job_id,
                     'metadata': {
                         'chunk_index': i,

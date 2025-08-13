@@ -400,6 +400,13 @@ class EmbeddingHandler(BaseHandler):
             
             for chunk_data in embeddings_data:
                 # Convert to Milvus format
+                # Handle processed_at conversion (in case it's an integer timestamp)
+                processed_at = chunk_data.get('processed_at')
+                if isinstance(processed_at, (int, float)):
+                    processed_at = datetime.fromtimestamp(processed_at).isoformat()
+                elif not processed_at:
+                    processed_at = datetime.now().isoformat()
+                
                 milvus_record = {
                     'chunk_id': chunk_data.get('chunk_id', str(uuid.uuid4())),
                     'embedding': chunk_data.get('embedding'),
@@ -408,11 +415,15 @@ class EmbeddingHandler(BaseHandler):
                     'source_url': chunk_data.get('source_url', ''),
                     'page_number': chunk_data.get('page_number', 1),
                     'diseases': json.dumps(chunk_data.get('diseases', [])),
-                    'processed_at': chunk_data.get('processed_at', int(datetime.now().timestamp())),
+                    'processed_at': processed_at,
                     'job_id': chunk_data.get('job_id', job_id)
                 }
                 
                 milvus_data.append(milvus_record)
+            
+            # Debug: Log the first record to check processed_at format
+            if milvus_data:
+                self.logger.debug(f"Sample Milvus record processed_at type: {type(milvus_data[0].get('processed_at'))}, value: {milvus_data[0].get('processed_at')}")
             
             # Insert into Milvus with retry logic
             last_error = None

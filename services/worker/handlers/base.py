@@ -269,8 +269,8 @@ class BaseHandler(ABC):
                 durable=consumer_config.get('durable_name', f"{self.handler_name}-consumer"),
                 cb=self._message_handler,
                 manual_ack=consumer_config.get('manual_ack', True),
-                pending_msgs_limit=consumer_config.get('pending_msgs_limit', self.max_workers * 2),
-                pending_bytes_limit=consumer_config.get('pending_bytes_limit', 1024 * 1024)  # 1MB
+                pending_msgs_limit=consumer_config.get('pending_msgs_limit', max(100, self.max_workers * 10)),
+                pending_bytes_limit=consumer_config.get('pending_bytes_limit', 10 * 1024 * 1024)  # 10MB
             )
             
             self.is_running = True
