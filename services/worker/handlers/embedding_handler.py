@@ -114,8 +114,8 @@ class EmbeddingHandler(BaseHandler):
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Handle publishing manually with custom delay"""
-        return None  # We'll publish manually with 500ms delay
+        """Handle publishing manually"""
+        return None  # We'll publish manually
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -142,18 +142,25 @@ class EmbeddingHandler(BaseHandler):
             job_id = chunk_data.get('job_id', str(uuid.uuid4()))
             url = chunk_data.get('url', 'unknown')
             
-            # Check if this is a single chunk (new format) or batch (old format)
-            if 'chunks' in chunk_data:
-                # Old batch format - process all chunks
+            # Check if this is bulk processing or single chunk
+            if chunk_data.get('bulk_processing', False) and 'chunks' in chunk_data:
+                # Bulk processing - process all chunks in batches of 100
+                chunks_data = chunk_data.get('chunks', [])
+                self.logger.info(f"Bulk processing mode: {len(chunks_data)} chunks will be processed in batches of {self.batch_size}")
+            elif 'chunks' in chunk_data:
+                # Legacy batch format - process all chunks
                 chunks_data = chunk_data.get('chunks', [])
             else:
-                # New single chunk format - process one chunk
+                # Single chunk format - process one chunk
                 chunks_data = [chunk_data]
             
             if not chunks_data:
                 raise MessageProcessingError("No chunks provided for embedding generation")
             
             self.logger.info(f"Processing {len(chunks_data)} chunks for embeddings (job_id: {job_id})")
+            
+            # Start timing for performance metrics
+            processing_start_time = datetime.now()
             
             # Connect to Milvus
             await self._ensure_milvus_connection()
@@ -168,7 +175,7 @@ class EmbeddingHandler(BaseHandler):
                 batch_num = (i // self.batch_size) + 1
                 total_batches = (len(chunks_data) + self.batch_size - 1) // self.batch_size
                 
-                self.logger.debug(f"Processing batch {batch_num}/{total_batches} ({len(batch_chunks)} chunks)")
+                self.logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch_chunks)} chunks) - Bulk processing mode")
                 
                 try:
                     # Generate embeddings for batch
@@ -199,16 +206,18 @@ class EmbeddingHandler(BaseHandler):
                     })
                     total_errors += len(batch_chunks)
                 
-                # Small delay between batches to respect rate limits
-                if i + self.batch_size < len(chunks_data):
-                    await asyncio.sleep(0.1)
+                # Continue processing next batch
+                pass
             
             success_rate = (total_embeddings / len(chunks_data)) if chunks_data else 0
             
+            # Log completion with performance metrics  
+            processing_time = (datetime.now() - processing_start_time).total_seconds()
+            
             self.logger.info(
-                f"Completed embedding generation for job {job_id}: "
+                f"Completed bulk embedding generation for job {job_id}: "
                 f"{total_embeddings}/{len(chunks_data)} embeddings stored "
-                f"({success_rate:.1%} success rate)"
+                f"({success_rate:.1%} success rate) in {processing_time:.2f}s"
             )
             
             # Prepare completion result
@@ -224,8 +233,7 @@ class EmbeddingHandler(BaseHandler):
                 'processed_at': datetime.now().isoformat()
             }
             
-            # Apply 500ms delay before publishing completion notification
-            await asyncio.sleep(0.5)  # 500ms delay for embeddings
+            # Publish completion notification immediately
             
             # Publish completion notification manually
             try:
@@ -240,7 +248,7 @@ class EmbeddingHandler(BaseHandler):
                 payload = json.dumps(completion_message, default=str).encode('utf-8')
                 await self.js.publish('embeddings.complete', payload)
                 
-                self.logger.debug(f"Published embedding completion for job {job_id} with 500ms delay")
+                self.logger.debug(f"Published embedding completion for job {job_id}")
             except Exception as e:
                 self.logger.warning(f"Failed to publish completion notification: {e}")
             

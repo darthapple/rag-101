@@ -74,12 +74,13 @@ class MilvusDatabase:
                     logger.info(f"Already connected to Milvus at {self.host}:{self.port}")
                     return True
                 
-                # Establish new connection
+                # Establish new connection with optimized settings
                 connections.connect(
                     alias=self.alias,
                     host=self.host,
                     port=self.port,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    pool_size=10  # Connection pool for better concurrency
                 )
                 
                 # Verify connection
@@ -253,7 +254,7 @@ class MilvusDatabase:
             "index_type": self.index_type,
             "metric_type": self.metric_type,
             "params": {
-                "nlist": 1024  # Number of cluster units
+                "nlist": 128  # Reduced for faster insertion, still good for <1M vectors
             }
         }
     
@@ -512,12 +513,13 @@ class MilvusDatabase:
             logger.error(f"Similarity search failed: {str(e)}")
             raise MilvusOperationError(f"Search operation failed: {str(e)}")
     
-    def batch_insert(self, data: List[Dict[str, Any]]) -> List[str]:
+    def batch_insert(self, data: List[Dict[str, Any]], auto_flush: bool = True) -> List[str]:
         """
         Insert multiple documents into the collection
         
         Args:
             data: List of documents to insert
+            auto_flush: Whether to flush immediately after insert
             
         Returns:
             list: List of inserted chunk IDs
@@ -548,8 +550,10 @@ class MilvusDatabase:
             # Insert data
             insert_result = collection.insert(entities)
             
-            # Flush to ensure data is persisted
-            collection.flush()
+            # Only flush if requested or batch is large
+            if auto_flush or len(data) >= 1000:
+                collection.flush()
+                logger.debug(f"Flushed {len(data)} documents to collection")
             
             logger.info(f"Inserted {len(data)} documents into collection")
             return insert_result.primary_keys

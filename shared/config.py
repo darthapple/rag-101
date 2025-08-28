@@ -631,10 +631,10 @@ class GeminiConfig(BaseSettings):
     )
     
     batch_size: int = Field(
-        default=10,
+        default=100,
         env="GEMINI_BATCH_SIZE",
         ge=1,
-        le=100,
+        le=500,
         description="Batch size for embedding requests"
     )
     
@@ -758,15 +758,6 @@ class WorkerConfig(BaseSettings):
         ge=5.0,
         le=300.0,
         description="Question processing timeout in seconds"
-    )
-    
-    # Demo settings
-    processing_delay: float = Field(
-        default=10.0,
-        env="PROCESSING_DELAY",
-        ge=0.0,
-        le=60.0,
-        description="Delay in seconds before sending message to next topic (for demo purposes)"
     )
 
 
@@ -1065,8 +1056,7 @@ class AppConfig(
             'document_processing_timeout': self.document_processing_timeout,
             'embedding_timeout': self.embedding_timeout,
             'embedding_handler_timeout': self.embedding_handler_timeout,
-            'question_timeout': self.question_timeout,
-            'processing_delay': self.processing_delay
+            'question_timeout': self.question_timeout
         }
     
     def get_api_config(self) -> dict:

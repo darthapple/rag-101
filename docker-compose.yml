@@ -2,6 +2,7 @@ services:
   etcd:
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.18
+    profiles: ["infra", "full", "test-worker"]
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -19,6 +20,7 @@ services:
   minio:
     container_name: milvus-minio
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    profiles: ["infra", "full", "test-worker"]
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -37,6 +39,7 @@ services:
   standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
+    profiles: ["infra", "full", "test-worker"]
     command: ["milvus", "run", "standalone"]
     security_opt:
     - seccomp:unconfined
@@ -62,6 +65,7 @@ services:
   nats:
     container_name: milvus-nats
     image: nats
+    profiles: ["infra", "full", "test-worker"]
     ports:
       - "4222:4222"
     volumes:
@@ -73,6 +77,7 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
     container_name: rag-101-api
+    profiles: ["full", "test-worker"]
     ports:
       - "8000:8000"
     environment:
@@ -85,8 +90,6 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
-      worker:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -101,6 +104,7 @@ services:
       context: .
       dockerfile: services/worker/Dockerfile
     container_name: rag-101-worker
+    profiles: ["full"]
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - NATS_URL=nats://nats:4222
@@ -126,6 +130,7 @@ services:
       context: .
       dockerfile: services/ui/Dockerfile
     container_name: rag-101-ui
+    profiles: ["full", "test-worker"]
     ports:
       - "8501:8501"
     environment:

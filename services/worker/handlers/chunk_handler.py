@@ -101,8 +101,8 @@ class ChunkHandler(BaseHandler):
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Handle publishing manually with delays - don't use base handler auto-publish"""
-        return None
+        """Publish all chunks as bulk message to embeddings topic"""
+        return "documents.embeddings"
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -184,39 +184,19 @@ class ChunkHandler(BaseHandler):
                 page_count=len(pages)
             )
             
-            # Publish each chunk with a shorter 500ms delay for demo purposes
-            published_count = 0
-            for chunk in all_chunks:
-                try:
-                    # Apply shorter delay for chunk processing (500ms instead of 10s)
-                    await asyncio.sleep(0.5)  # 500ms delay for chunks
-                    
-                    # Publish chunk message directly
-                    message_id = f"{job_id}_{chunk['chunk_id']}"
-                    chunk_message = {
-                        'handler': self.handler_name,
-                        'message_id': message_id,
-                        'processed_at': datetime.now().isoformat(),
-                        'result': chunk
-                    }
-                    
-                    import json
-                    payload = json.dumps(chunk_message, default=str).encode('utf-8')
-                    await self.js.publish('documents.embeddings', payload)
-                    published_count += 1
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to publish chunk {chunk['chunk_id']}: {e}")
+            # Prepare for bulk processing - all chunks will be sent in one message
+            published_count = len(all_chunks)  # All chunks will be processed in bulk
+            self.logger.info(f"Prepared {len(all_chunks)} chunks for bulk embedding processing")
             
-            self.logger.info(f"Published {published_count}/{len(all_chunks)} chunks to embedding topic with delays")
-            
+            # Return bulk chunks data for embedding processing
             return {
                 'job_id': job_id,
                 'url': url,
-                'status': 'chunked',
+                'chunks': all_chunks,  # Send all chunks in one message
                 'chunk_count': len(all_chunks),
                 'published_count': published_count,
                 'document_title': document_title,
+                'bulk_processing': True,  # Flag for bulk processing
                 'processing_time': datetime.now().isoformat()
             }
                 
