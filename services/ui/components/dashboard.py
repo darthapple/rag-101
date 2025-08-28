@@ -72,10 +72,6 @@ class Dashboard:
             background-color: #e8f5e8;
         }
         
-        .workflow-block-complete {
-            border-color: #d62728;
-            background-color: #f8e8e8;
-        }
         
         .workflow-block-questions {
             border-color: #3498db;
@@ -246,8 +242,8 @@ class Dashboard:
         
         workflow = streams_data.get('document_workflow', {})
         
-        # Create 7 columns: block, arrow, block, arrow, block, arrow, block
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1, 2, 1, 2, 1, 2])
+        # Create 5 columns: block, arrow, block, arrow, block
+        col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 2])
         
         with col1:
             self._render_workflow_block(
@@ -276,18 +272,7 @@ class Dashboard:
                 title="Embeddings",
                 count=workflow.get('embeddings', 0),
                 block_type="embeddings",
-                help_text="Vector embeddings generated"
-            )
-        
-        with col6:
-            st.markdown('<div class="workflow-arrow">───▶</div>', unsafe_allow_html=True)
-        
-        with col7:
-            self._render_workflow_block(
-                title="Complete",
-                count=workflow.get('complete', 0),
-                block_type="complete",
-                help_text="Fully processed documents"
+                help_text="Vector embeddings generated and stored"
             )
     
     def _render_qa_workflow_blocks(self, streams_data: Dict[str, Any]):
