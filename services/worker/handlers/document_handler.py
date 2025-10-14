@@ -26,7 +26,7 @@ from handlers.base import BaseHandler, MessageProcessingError
 import sys
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
 from shared.models import Document, DocumentChunk, DocumentStatus
-from shared.logging import get_structured_logger
+from shared.rag_logging import get_structured_logger
 
 
 class DocumentDownloadError(Exception):
@@ -75,12 +75,16 @@ class DocumentHandler(BaseHandler):
         return "documents.download"
     
     def get_consumer_config(self) -> Dict[str, Any]:
-        """Consumer configuration for document processing"""
+        """Consumer configuration for document processing - aligned with NATS configurator"""
         return {
             'durable_name': 'document-download-worker',
             'manual_ack': True,
-            'pending_msgs_limit': self.max_workers * 2,
-            'ack_wait': self.download_timeout * 2  # Double timeout for ack wait
+            # Align with NATSConfigurator consumer settings
+            'max_ack_pending': 10,  # Match NATSConfigurator setting
+            'ack_wait': 300,  # 5 minutes in seconds (matches NATSConfigurator)
+            'max_deliver': 3,  # Match retry attempts
+            'pending_bytes_limit': 10 * 1024 * 1024,  # 10MB
+            'description': 'Worker consumer for document download processing'
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:

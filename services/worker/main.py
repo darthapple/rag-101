@@ -20,7 +20,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from shared.config import get_config
-from shared.logging import setup_logging, get_structured_logger
+from shared.rag_logging import setup_logging, get_structured_logger
 from shared.infrastructure import InfrastructureManager
 from handlers.base import WorkerPool, BaseHandler
 
@@ -29,6 +29,7 @@ from handlers.base import WorkerPool, BaseHandler
 from handlers.document_handler import DocumentHandler
 from handlers.chunk_handler import ChunkHandler
 from handlers.embedding_handler import EmbeddingHandler
+from handlers.completion_handler import CompletionHandler
 from handlers.answer_handler import AnswerHandler
 
 
@@ -89,6 +90,14 @@ class WorkerService:
         )
         self.pool.add_handler(embedding_handler)
         
+        # Completion handler for batch persistence to Milvus
+        completion_handler = CompletionHandler(
+            handler_name="completion-processor", 
+            max_workers=self.config.max_embedding_workers,  # Use same limit as embedding workers
+            infra_manager=self.infra_manager
+        )
+        self.pool.add_handler(completion_handler)
+        
         # Question processing handler
         answer_handler = AnswerHandler(
             handler_name="question-processor",
@@ -97,7 +106,7 @@ class WorkerService:
         )
         self.pool.add_handler(answer_handler)
         
-        # Note: Additional handlers (embedding, question) will be added as they are implemented
+        # All handlers configured: document, chunk, embedding, completion, and answer processing
         
         self.logger.info(
             "Handlers configured",

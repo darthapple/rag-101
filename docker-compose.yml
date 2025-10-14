@@ -85,6 +85,7 @@ services:
       - NATS_URL=nats://nats:4222
       - MILVUS_HOST=standalone
       - MILVUS_PORT=19530
+      - MESSAGE_TTL=900
     depends_on:
       standalone:
         condition: service_healthy
@@ -110,6 +111,7 @@ services:
       - NATS_URL=nats://nats:4222
       - MILVUS_HOST=standalone
       - MILVUS_PORT=19530
+      - MESSAGE_TTL=900
     depends_on:
       standalone:
         condition: service_healthy
@@ -138,6 +140,7 @@ services:
       - WS_BASE_URL=ws://api:8000
       - NATS_URL=nats://nats:4222
       - SESSION_TTL=3600
+      - MESSAGE_TTL=900
       - DEBUG=false
       - AUTO_REFRESH_INTERVAL=30
     depends_on:

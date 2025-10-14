@@ -8,9 +8,9 @@ using Google Gemini API, and stores them in Milvus for similarity search.
 import asyncio
 import logging
 import sys
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional
 from datetime import datetime
-import json
+# Removed json import - no longer needed
 import uuid
 import time
 
@@ -20,7 +20,7 @@ import google.generativeai as genai
 
 from handlers.base import BaseHandler, MessageProcessingError
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
-from shared.database import MilvusDatabase, MilvusConnectionError, MilvusOperationError
+# Removed Milvus imports - completion handler now handles persistence
 from shared.models import DocumentChunk
 
 
@@ -29,9 +29,7 @@ class EmbeddingGenerationError(Exception):
     pass
 
 
-class EmbeddingStorageError(Exception):
-    """Exception raised during embedding storage"""
-    pass
+# Removed EmbeddingStorageError - no longer needed
 
 
 class EmbeddingHandler(BaseHandler):
@@ -68,15 +66,13 @@ class EmbeddingHandler(BaseHandler):
         self.embeddings_client = None
         self._setup_gemini_client()
         
-        # Initialize Milvus database
-        self.milvus_db = MilvusDatabase(
-            host=self.config.milvus_host,
-            port=self.config.milvus_port,
-            alias=f"{self.handler_name}-milvus",
-            timeout=self.config.connection_timeout
-        )
+        # Removed batch collection and Milvus database - completion handler now handles this
         
         self.logger.info(f"Embedding handler initialized with model {self.embedding_model}")
+    
+    # Removed batch collection override - now use standard single message processing
+    
+    # Removed batch processing method - now handled by completion handler
     
     def _setup_gemini_client(self):
         """Setup Google Gemini API client"""
@@ -109,13 +105,13 @@ class EmbeddingHandler(BaseHandler):
         return {
             'durable_name': 'document-embedding-worker',
             'manual_ack': True,
-            'pending_msgs_limit': self.max_workers * 5,  # Higher limit for batch processing
+            # No pending_msgs_limit - let NATS handle queuing
             'ack_wait': self.embedding_timeout * 2  # Double timeout for ack wait
         }
     
-    def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Handle publishing manually"""
-        return None  # We'll publish manually
+    def get_result_subject(self, data: Dict[str, Any] = None) -> Optional[str]:
+        """Publish embeddings to completion queue"""
+        return "documents.complete"
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -140,185 +136,71 @@ class EmbeddingHandler(BaseHandler):
             
             # Extract request data - now processing single chunk
             job_id = chunk_data.get('job_id', str(uuid.uuid4()))
-            url = chunk_data.get('url', 'unknown')
             
-            # Check if this is bulk processing or single chunk
-            if chunk_data.get('bulk_processing', False) and 'chunks' in chunk_data:
-                # Bulk processing - process all chunks in batches of 100
-                chunks_data = chunk_data.get('chunks', [])
-                self.logger.info(f"Bulk processing mode: {len(chunks_data)} chunks will be processed in batches of {self.batch_size}")
-            elif 'chunks' in chunk_data:
-                # Legacy batch format - process all chunks
-                chunks_data = chunk_data.get('chunks', [])
-            else:
-                # Single chunk format - process one chunk
-                chunks_data = [chunk_data]
+            # Process single chunk only (no more bulk processing in embedding handler)
+            if not chunk_data.get('text_content'):
+                raise MessageProcessingError("No text content in chunk data for embedding generation")
             
-            if not chunks_data:
-                raise MessageProcessingError("No chunks provided for embedding generation")
-            
-            self.logger.info(f"Processing {len(chunks_data)} chunks for embeddings (job_id: {job_id})")
+            self.logger.info(f"Processing single chunk for embedding (job_id: {job_id})")
             
             # Start timing for performance metrics
             processing_start_time = datetime.now()
             
-            # Connect to Milvus
-            await self._ensure_milvus_connection()
-            
-            # Process chunks in batches
-            total_embeddings = 0
-            total_errors = 0
-            batch_results = []
-            
-            for i in range(0, len(chunks_data), self.batch_size):
-                batch_chunks = chunks_data[i:i + self.batch_size]
-                batch_num = (i // self.batch_size) + 1
-                total_batches = (len(chunks_data) + self.batch_size - 1) // self.batch_size
-                
-                self.logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch_chunks)} chunks) - Bulk processing mode")
-                
-                try:
-                    # Generate embeddings for batch
-                    embeddings = await self._generate_embeddings_batch(batch_chunks, job_id)
-                    
-                    # Store embeddings in Milvus
-                    stored_count = await self._store_embeddings_batch(embeddings, job_id)
-                    
-                    batch_results.append({
-                        'batch_num': batch_num,
-                        'chunks_processed': len(batch_chunks),
-                        'embeddings_generated': len(embeddings),
-                        'embeddings_stored': stored_count,
-                        'success': True
-                    })
-                    
-                    total_embeddings += stored_count
-                    
-                except Exception as e:
-                    self.logger.error(f"Batch {batch_num} failed: {e}")
-                    batch_results.append({
-                        'batch_num': batch_num,
-                        'chunks_processed': len(batch_chunks),
-                        'embeddings_generated': 0,
-                        'embeddings_stored': 0,
-                        'success': False,
-                        'error': str(e)
-                    })
-                    total_errors += len(batch_chunks)
-                
-                # Continue processing next batch
-                pass
-            
-            success_rate = (total_embeddings / len(chunks_data)) if chunks_data else 0
+            # Generate embedding for single chunk
+            embedding_result = await self._generate_single_embedding(chunk_data, job_id)
             
             # Log completion with performance metrics  
             processing_time = (datetime.now() - processing_start_time).total_seconds()
             
             self.logger.info(
-                f"Completed bulk embedding generation for job {job_id}: "
-                f"{total_embeddings}/{len(chunks_data)} embeddings stored "
-                f"({success_rate:.1%} success rate) in {processing_time:.2f}s"
+                f"Completed embedding generation for job {job_id} in {processing_time:.2f}s"
             )
             
-            # Prepare completion result
-            completion_result = {
-                'job_id': job_id,
-                'url': url,
-                'status': 'completed' if total_errors == 0 else 'partial',
-                'chunks_total': len(chunks_data),
-                'embeddings_generated': total_embeddings,
-                'errors': total_errors,
-                'success_rate': success_rate,
-                'batch_results': batch_results,
-                'processed_at': datetime.now().isoformat()
-            }
-            
-            # Publish completion notification immediately
-            
-            # Publish completion notification manually
-            try:
-                completion_message = {
-                    'handler': self.handler_name,
-                    'message_id': job_id,
-                    'processed_at': datetime.now().isoformat(),
-                    'result': completion_result
-                }
-                
-                import json
-                payload = json.dumps(completion_message, default=str).encode('utf-8')
-                await self.js.publish('embeddings.complete', payload)
-                
-                self.logger.debug(f"Published embedding completion for job {job_id}")
-            except Exception as e:
-                self.logger.warning(f"Failed to publish completion notification: {e}")
-            
-            return completion_result
+            return embedding_result
             
         except EmbeddingGenerationError as e:
             error_msg = f"Embedding generation failed: {str(e)}"
             self.logger.error(error_msg)
             raise MessageProcessingError(error_msg)
             
-        except EmbeddingStorageError as e:
-            error_msg = f"Embedding storage failed: {str(e)}"
-            self.logger.error(error_msg)
-            raise MessageProcessingError(error_msg)
+        # EmbeddingStorageError removed - completion handler now handles storage
             
         except Exception as e:
             error_msg = f"Unexpected error in embedding processing: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise MessageProcessingError(error_msg)
     
-    async def _ensure_milvus_connection(self):
-        """Ensure Milvus connection is established"""
-        try:
-            if not self.milvus_db._connected:
-                success = self.milvus_db.connect()
-                if not success:
-                    raise EmbeddingStorageError("Failed to connect to Milvus")
-            
-            # Ensure collection exists
-            if not self.milvus_db.collection_exists():
-                from shared.create_collection import ensure_collection_exists
-                if not ensure_collection_exists():
-                    raise EmbeddingStorageError("Failed to ensure Milvus collection exists")
-            
-        except Exception as e:
-            raise EmbeddingStorageError(f"Milvus connection error: {e}")
+    # Removed Milvus connection method - completion handler now handles this
     
-    async def _generate_embeddings_batch(
+    async def _generate_single_embedding(
         self, 
-        batch_chunks: List[Dict[str, Any]], 
+        chunk_data: Dict[str, Any], 
         job_id: str
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
-        Generate embeddings for a batch of chunks
+        Generate embedding for a single chunk
         
         Args:
-            batch_chunks: List of chunk data dictionaries
+            chunk_data: Single chunk data dictionary
             job_id: Job identifier for tracking
             
         Returns:
-            List[Dict[str, Any]]: Chunks with embeddings added
+            Dict[str, Any]: Chunk with embedding added
             
         Raises:
             EmbeddingGenerationError: If generation fails
         """
         try:
             # Extract text content for embedding
-            texts = [chunk.get('text_content', '') for chunk in batch_chunks]
+            text_content = chunk_data.get('text_content', '')
             
-            # Filter out empty texts
-            valid_indices = [i for i, text in enumerate(texts) if text.strip()]
-            valid_texts = [texts[i] for i in valid_indices]
-            
-            if not valid_texts:
+            if not text_content.strip():
                 raise EmbeddingGenerationError("No valid text content for embedding generation")
             
-            self.logger.debug(f"Generating embeddings for {len(valid_texts)} text chunks")
+            self.logger.debug(f"Generating embedding for chunk {chunk_data.get('chunk_id', 'unknown')}")
             
-            # Generate embeddings using Gemini API with retry logic
-            embeddings = None
+            # Generate embedding using Gemini API with retry logic
+            embedding = None
             last_error = None
             
             for attempt in range(self.max_retries):
@@ -327,9 +209,12 @@ class EmbeddingHandler(BaseHandler):
                     embeddings = await asyncio.get_event_loop().run_in_executor(
                         None,
                         self.embeddings_client.embed_documents,
-                        valid_texts
+                        [text_content]
                     )
-                    break
+                    
+                    if embeddings and len(embeddings) > 0:
+                        embedding = embeddings[0]
+                        break
                     
                 except Exception as e:
                     last_error = e
@@ -342,140 +227,34 @@ class EmbeddingHandler(BaseHandler):
                     else:
                         raise EmbeddingGenerationError(f"Failed after {self.max_retries} attempts: {last_error}")
             
-            if not embeddings:
-                raise EmbeddingGenerationError("No embeddings generated")
-            
-            # Validate embeddings
-            if len(embeddings) != len(valid_texts):
-                raise EmbeddingGenerationError(
-                    f"Embedding count mismatch: {len(embeddings)} != {len(valid_texts)}"
-                )
+            if not embedding:
+                raise EmbeddingGenerationError("No embedding generated")
             
             # Validate embedding dimensions
-            for i, embedding in enumerate(embeddings):
-                if len(embedding) != self.vector_dimension:
-                    raise EmbeddingGenerationError(
-                        f"Invalid embedding dimension at index {i}: {len(embedding)} != {self.vector_dimension}"
-                    )
+            if len(embedding) != self.vector_dimension:
+                raise EmbeddingGenerationError(
+                    f"Invalid embedding dimension: {len(embedding)} != {self.vector_dimension}"
+                )
             
-            # Combine chunks with embeddings
-            result_chunks = []
-            embedding_index = 0
+            # Add embedding to chunk data
+            result_chunk = chunk_data.copy()
+            result_chunk['embedding'] = embedding
+            result_chunk['embedding_generated_at'] = datetime.now().isoformat()
             
-            for i, chunk in enumerate(batch_chunks):
-                if i in valid_indices:
-                    # Add embedding to chunk
-                    chunk_with_embedding = chunk.copy()
-                    chunk_with_embedding['embedding'] = embeddings[embedding_index]
-                    result_chunks.append(chunk_with_embedding)
-                    embedding_index += 1
-                else:
-                    # Skip chunks without valid text
-                    self.logger.warning(f"Skipping chunk {i} due to empty text content")
-            
-            self.logger.debug(f"Successfully generated {len(result_chunks)} embeddings")
-            return result_chunks
+            self.logger.debug(f"Successfully generated embedding for chunk {result_chunk.get('chunk_id')}")
+            return result_chunk
             
         except Exception as e:
-            raise EmbeddingGenerationError(f"Batch embedding generation failed: {e}")
+            raise EmbeddingGenerationError(f"Single embedding generation failed: {e}")
     
-    async def _store_embeddings_batch(
-        self, 
-        embeddings_data: List[Dict[str, Any]], 
-        job_id: str
-    ) -> int:
-        """
-        Store embeddings batch in Milvus collection
-        
-        Args:
-            embeddings_data: List of chunks with embeddings
-            job_id: Job identifier
-            
-        Returns:
-            int: Number of embeddings successfully stored
-            
-        Raises:
-            EmbeddingStorageError: If storage fails
-        """
-        try:
-            if not embeddings_data:
-                return 0
-            
-            self.logger.debug(f"Storing {len(embeddings_data)} embeddings in Milvus")
-            
-            # Prepare data for Milvus insertion
-            milvus_data = []
-            
-            for chunk_data in embeddings_data:
-                # Convert to Milvus format
-                # Handle processed_at conversion (in case it's an integer timestamp)
-                processed_at = chunk_data.get('processed_at')
-                if isinstance(processed_at, (int, float)):
-                    processed_at = datetime.fromtimestamp(processed_at).isoformat()
-                elif not processed_at:
-                    processed_at = datetime.now().isoformat()
-                
-                milvus_record = {
-                    'chunk_id': chunk_data.get('chunk_id', str(uuid.uuid4())),
-                    'embedding': chunk_data.get('embedding'),
-                    'text_content': chunk_data.get('text_content', ''),
-                    'document_title': chunk_data.get('document_title', ''),
-                    'source_url': chunk_data.get('source_url', ''),
-                    'page_number': chunk_data.get('page_number', 1),
-                    'diseases': json.dumps(chunk_data.get('diseases', [])),
-                    'processed_at': processed_at,
-                    'job_id': chunk_data.get('job_id', job_id)
-                }
-                
-                milvus_data.append(milvus_record)
-            
-            # Debug: Log the first record to check processed_at format
-            if milvus_data:
-                self.logger.debug(f"Sample Milvus record processed_at type: {type(milvus_data[0].get('processed_at'))}, value: {milvus_data[0].get('processed_at')}")
-            
-            # Insert into Milvus with retry logic
-            last_error = None
-            for attempt in range(self.max_retries):
-                try:
-                    inserted_ids = self.milvus_db.batch_insert(milvus_data)
-                    
-                    if not inserted_ids:
-                        raise EmbeddingStorageError("No embeddings were inserted")
-                    
-                    self.logger.debug(f"Successfully stored {len(inserted_ids)} embeddings")
-                    return len(inserted_ids)
-                    
-                except (MilvusConnectionError, MilvusOperationError) as e:
-                    last_error = e
-                    self.logger.warning(f"Milvus insertion attempt {attempt + 1} failed: {e}")
-                    
-                    if attempt < self.max_retries - 1:
-                        # Try to reconnect
-                        try:
-                            self.milvus_db.disconnect()
-                            await asyncio.sleep(1.0)
-                            await self._ensure_milvus_connection()
-                        except Exception as reconnect_error:
-                            self.logger.error(f"Reconnection failed: {reconnect_error}")
-                    else:
-                        raise EmbeddingStorageError(f"Failed after {self.max_retries} attempts: {last_error}")
-            
-            return 0
-            
-        except Exception as e:
-            raise EmbeddingStorageError(f"Batch storage failed: {e}")
+    # Removed storage method - completion handler now handles Milvus persistence
+    
+    # Removed batch processing methods - standard cleanup now suffices
     
     async def stop(self):
         """Stop the handler and cleanup connections"""
         await super().stop()
-        
-        # Disconnect from Milvus
-        try:
-            if self.milvus_db:
-                self.milvus_db.disconnect()
-                self.logger.info("Disconnected from Milvus")
-        except Exception as e:
-            self.logger.error(f"Error disconnecting from Milvus: {e}")
+        self.logger.info("Embedding handler stopped")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get handler statistics with embedding-specific metrics"""
@@ -484,9 +263,7 @@ class EmbeddingHandler(BaseHandler):
         # Add embedding-specific stats
         base_stats.update({
             'embedding_model': self.embedding_model,
-            'vector_dimension': self.vector_dimension,
-            'batch_size': self.batch_size,
-            'milvus_connected': self.milvus_db._connected if self.milvus_db else False
+            'vector_dimension': self.vector_dimension
         })
         
         return base_stats

@@ -53,10 +53,10 @@ class NATSConfigurator:
                 'name': 'documents_download',
                 'subjects': ['documents.download'],
                 'description': 'PDF document download requests',
-                'max_age': timedelta(hours=1),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 5000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD,
                 'duplicate_window': timedelta(minutes=1)
             },
@@ -64,30 +64,41 @@ class NATSConfigurator:
                 'name': 'documents_chunks',
                 'subjects': ['documents.chunks'],
                 'description': 'Document text chunking requests',
-                'max_age': timedelta(hours=1),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 10000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD
             },
             'documents_embeddings': {
                 'name': 'documents_embeddings',
                 'subjects': ['documents.embeddings'],
                 'description': 'Document chunk embedding generation',
-                'max_age': timedelta(hours=1),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 50000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD
+            },
+            'documents_complete': {
+                'name': 'documents_complete',
+                'subjects': ['documents.complete'],
+                'description': 'Embedding completion for batch persistence to Milvus',
+                'max_age': timedelta(minutes=15),
+                'max_msgs': 50000,
+                'storage': StorageType.MEMORY,
+                'retention': RetentionPolicy.WORK_QUEUE,
+                'discard': DiscardPolicy.OLD,
+                'duplicate_window': timedelta(minutes=1)
             },
             'chat_questions': {
                 'name': 'chat_questions',
                 'subjects': ['chat.questions'],
                 'description': 'User questions for processing',
-                'max_age': timedelta(hours=1),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 20000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD,
                 'duplicate_window': timedelta(minutes=1)
             },
@@ -95,20 +106,20 @@ class NATSConfigurator:
                 'name': 'chat_answers',
                 'subjects': ['chat.answers.*'],
                 'description': 'Session-specific answer delivery',
-                'max_age': timedelta(hours=1),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 20000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD
             },
             'system_metrics': {
                 'name': 'system_metrics',
                 'subjects': ['system.metrics'],
                 'description': 'System monitoring and performance metrics',
-                'max_age': timedelta(minutes=30),
+                'max_age': timedelta(minutes=15),
                 'max_msgs': 100000,
                 'storage': StorageType.MEMORY,
-                'retention': RetentionPolicy.LIMITS,
+                'retention': RetentionPolicy.WORK_QUEUE,
                 'discard': DiscardPolicy.OLD
             }
         }
@@ -148,6 +159,17 @@ class NATSConfigurator:
                 'max_ack_pending': 50,
                 'description': 'Worker consumer for embedding generation'
             },
+            'document-completion-worker': {
+                'stream': 'documents_complete',
+                'durable_name': 'document-completion-worker',
+                'filter_subject': 'documents.complete',
+                'deliver_policy': DeliverPolicy.ALL,
+                'ack_policy': AckPolicy.EXPLICIT,
+                'max_deliver': 3,
+                'ack_wait': timedelta(minutes=3),  # Longer timeout for batch processing
+                'max_ack_pending': 100,  # Higher limit for batch operations
+                'description': 'Worker consumer for embedding completion and Milvus persistence'
+            },
             'chat-question-worker': {
                 'stream': 'chat_questions',
                 'durable_name': 'chat-question-worker',
@@ -184,7 +206,7 @@ class NATSConfigurator:
             'sessions': {
                 'bucket': 'sessions',
                 'description': 'Session data with TTL',
-                'ttl': timedelta(hours=1),
+                'ttl': timedelta(minutes=15),
                 'max_value_size': 10240,  # 10KB
                 'history': 1,  # Keep only latest value
                 'storage': StorageType.MEMORY,
@@ -193,7 +215,7 @@ class NATSConfigurator:
             'processing_status': {
                 'bucket': 'processing_status',
                 'description': 'Document and embedding processing status',
-                'ttl': timedelta(hours=2),
+                'ttl': timedelta(minutes=15),
                 'max_value_size': 5120,  # 5KB
                 'history': 5,  # Keep last 5 status updates
                 'storage': StorageType.MEMORY,

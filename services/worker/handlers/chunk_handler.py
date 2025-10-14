@@ -18,7 +18,7 @@ from handlers.base import BaseHandler, MessageProcessingError
 import sys
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
 from shared.models import DocumentChunk
-from shared.logging import get_structured_logger
+from shared.rag_logging import get_structured_logger
 
 
 class ChunkProcessingError(Exception):
@@ -96,13 +96,13 @@ class ChunkHandler(BaseHandler):
         return {
             'durable_name': 'document-chunk-worker',
             'manual_ack': True,
-            'pending_msgs_limit': self.max_workers * 2,
+            # No pending_msgs_limit - let NATS handle queuing
             'ack_wait': 120  # 2 minutes for chunk processing
         }
     
     def get_result_subject(self, data: Dict[str, Any]) -> Optional[str]:
-        """Publish all chunks as bulk message to embeddings topic"""
-        return "documents.embeddings"
+        """Individual chunks are published manually in process_message"""
+        return None
     
     async def process_message(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -184,21 +184,37 @@ class ChunkHandler(BaseHandler):
                 page_count=len(pages)
             )
             
-            # Prepare for bulk processing - all chunks will be sent in one message
-            published_count = len(all_chunks)  # All chunks will be processed in bulk
-            self.logger.info(f"Prepared {len(all_chunks)} chunks for bulk embedding processing")
+            # Publish individual chunk messages to embeddings queue
+            published_count = 0
+            failed_count = 0
             
-            # Return bulk chunks data for embedding processing
-            return {
-                'job_id': job_id,
-                'url': url,
-                'chunks': all_chunks,  # Send all chunks in one message
-                'chunk_count': len(all_chunks),
-                'published_count': published_count,
-                'document_title': document_title,
-                'bulk_processing': True,  # Flag for bulk processing
-                'processing_time': datetime.now().isoformat()
-            }
+            self.logger.info(f"Publishing {len(all_chunks)} individual chunks to embeddings queue")
+            
+            for i, chunk_data in enumerate(all_chunks):
+                try:
+                    # Create individual chunk message
+                    chunk_message = {
+                        'handler': self.handler_name,
+                        'message_id': f"{job_id}_chunk_{i}",
+                        'processed_at': datetime.now().isoformat(),
+                        'result': chunk_data
+                    }
+                    
+                    # Publish individual chunk to embeddings queue
+                    import json
+                    payload = json.dumps(chunk_message, default=str).encode('utf-8')
+                    await self.js.publish('documents.embeddings', payload)
+                    
+                    published_count += 1
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to publish chunk {i}: {e}")
+                    failed_count += 1
+            
+            self.logger.info(f"Published {published_count}/{len(all_chunks)} chunks successfully, {failed_count} failed")
+            
+            # Return None since we handled publishing manually
+            return None
                 
         except ChunkProcessingError as e:
             processing_time = (datetime.now() - processing_start_time).total_seconds()

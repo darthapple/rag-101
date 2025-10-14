@@ -144,9 +144,15 @@ async def get_document_workflow_stats(infra_manager) -> WorkflowStats:
         except Exception as e:
             logger.debug(f"Embeddings stream not found or error: {e}")
             
-        # Complete count could be based on successful embeddings or a separate stream
-        # For now, use embeddings count as proxy for completed documents
-        workflow_stats.complete = workflow_stats.embeddings
+        try:
+            # Completion stream (new completion queue for batch processing)
+            complete_stream = await js.stream_info("documents_complete")
+            workflow_stats.complete = complete_stream.state.messages
+            logger.debug(f"Documents complete stream: {workflow_stats.complete} messages")
+        except Exception as e:
+            logger.debug(f"Complete stream not found or error: {e}")
+            # Set to 0 if complete stream not available (don't use embeddings as fallback)
+            workflow_stats.complete = 0
             
         return workflow_stats
         

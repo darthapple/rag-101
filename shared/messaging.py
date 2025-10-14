@@ -77,6 +77,7 @@ class NATSClient:
             'documents': 'documents.download',
             'chunks': 'documents.chunks',
             'embeddings': 'documents.embeddings',
+            'complete': 'documents.complete',
             'metrics': 'system.metrics'
         }
     

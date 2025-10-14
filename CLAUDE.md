@@ -164,6 +164,116 @@ When implementing tests, focus on:
 - **WebSocket Integration**: Real-time answer delivery and session management
 - **Performance**: Vector search latency and concurrent processing
 
+### Testing Commands
+
+Use these commands for systematic testing and debugging. Helper scripts are available in the `scripts/` directory.
+
+#### System State Management
+```bash
+# Comprehensive cleanup (NATS streams, KV buckets, Milvus collection)
+bash scripts/clean.sh
+
+# Python alternative (clears NATS + Milvus)
+python scripts/clear_all_data.py
+
+# Or run via Docker
+docker exec rag-101-api python /app/scripts/clear_all_data.py
+```
+
+#### Database Inspection
+```bash
+# Check Milvus database - detailed view with statistics
+python scripts/check_milvus.py
+
+# Quick status check only
+python scripts/check_milvus.py --simple
+
+# Check via Docker (useful inside containers)
+docker exec rag-101-worker python -c "
+from pymilvus import connections, Collection
+connections.connect('default', host='standalone', port='19530')
+col = Collection('medical_documents')
+col.load()
+print(f'Documents: {col.num_entities}')
+"
+```
+
+#### System Monitoring
+```bash
+# Monitor NATS streams
+nats stream ls --server=nats://localhost:4222
+
+# Detailed stream info
+nats stream info documents_download --server=nats://localhost:4222
+nats stream info documents_chunks --server=nats://localhost:4222
+nats stream info documents_embeddings --server=nats://localhost:4222
+nats stream info documents_complete --server=nats://localhost:4222
+
+# Real-time message flow monitoring
+python scripts/monitor_flow.py
+```
+
+#### Testing & Validation
+```bash
+# Full API test suite (comprehensive)
+python scripts/test_api_comprehensive.py
+
+# Simple Q&A flow test (quick validation)
+python scripts/test_simple_qa.py
+
+# Document processing tests
+python scripts/submit_test_document.py      # Submit test document
+python scripts/test_document_flow.py        # End-to-end document flow
+python scripts/small_test.py                # Quick test
+```
+
+#### Single Handler Debugging
+```bash
+# Read message format from embeddings queue (uses ephemeral consumer to avoid interfering)
+docker exec rag-101-api python -c "
+import asyncio, nats
+async def read_message():
+    nc = await nats.connect('nats://nats:4222')
+    js = nc.jetstream()
+    try:
+        # Use ephemeral consumer (no durable_name) to avoid competing with workers
+        psub = await js.pull_subscribe('documents.embeddings')
+        msgs = await psub.fetch(1, timeout=5.0)
+        if msgs:
+            print('Sample message format:')
+            print(msgs[0].data.decode('utf-8'))
+            # IMPORTANT: Do not ACK - let the actual worker process it
+        else: print('No messages in queue')
+        await psub.unsubscribe()
+    except Exception as e: print(f'Error: {e}')
+    await nc.close()
+asyncio.run(read_message())
+"
+
+# Send single test message to embeddings queue
+# (Replace MESSAGE_JSON with actual message format from above)
+docker exec rag-101-api python -c "
+import asyncio, nats, json
+async def send_test_message():
+    nc = await nats.connect('nats://nats:4222')
+    test_msg = {
+        'job_id': 'test-embedding-debug',
+        'chunk_id': 'test-chunk-1',
+        'text_content': 'This is a test chunk for embedding generation.',
+        'document_title': 'Test Document',
+        'source_url': 'test://debug',
+        'page_number': 1
+    }
+    await nc.publish('documents.embeddings', json.dumps(test_msg).encode())
+    print('Test message sent to embeddings queue')
+    await nc.close()
+asyncio.run(send_test_message())
+"
+
+# Monitor worker logs in real-time
+docker logs rag-101-worker --follow
+```
+
 ## Monitoring & Operations
 
 ### Health Checks
@@ -210,6 +320,19 @@ shared/               # Common utilities across services
 ├── messaging.py      # NATS operations
 ├── models.py         # Shared data models
 └── config.py         # Configuration management
+
+scripts/              # Testing and debugging utilities
+├── check_milvus.py            # Database inspection (unified)
+├── clean.sh                   # Comprehensive system cleanup
+├── clear_all_data.py          # Python cleanup alternative
+├── monitor_flow.py            # Real-time message flow monitoring
+├── test_api_comprehensive.py  # Full API test suite
+├── test_simple_qa.py          # Quick Q&A validation
+├── submit_test_document.py    # Submit test documents
+├── test_document_flow.py      # End-to-end document flow test
+├── small_test.py              # Quick test runner
+├── health-check.sh            # Service health verification
+└── wait-for-services.sh       # Service startup coordination
 ```
 
 ## Important Notes for Implementation

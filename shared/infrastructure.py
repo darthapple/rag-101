@@ -9,7 +9,7 @@ Provides consistent infrastructure setup and verification for all services:
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -19,7 +19,7 @@ from nats.js.api import StreamConfig, RetentionPolicy, StorageType, KeyValueConf
 from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
 
 from shared.config import get_config
-from shared.logging import get_structured_logger
+from shared.rag_logging import get_structured_logger
 from shared.nats_setup import NATSConfigurator
 
 class InfrastructureManager:
@@ -208,16 +208,20 @@ class InfrastructureManager:
     
     async def _create_stream(self, stream_def: Dict[str, Any]):
         """Create a new JetStream stream"""
+        # Get full configuration from NATSConfigurator
+        configurator = NATSConfigurator()
+        full_config = configurator.streams.get(stream_def["name"], {})
+        
         stream_config = StreamConfig(
             name=stream_def["name"],
             subjects=stream_def["subjects"],
             description=stream_def["description"],
-            retention=RetentionPolicy.LIMITS,
-            storage=StorageType.FILE,
-            max_age=self.config.message_ttl,
-            max_msgs=10000,
+            retention=full_config.get('retention', RetentionPolicy.LIMITS),
+            storage=full_config.get('storage', StorageType.FILE),
+            max_age=full_config.get('max_age', self.config.message_ttl).total_seconds(),
+            max_msgs=full_config.get('max_msgs', 10000),
             max_bytes=100 * 1024 * 1024,  # 100MB
-            duplicate_window=60
+            duplicate_window=full_config.get('duplicate_window', timedelta(minutes=1)).total_seconds()
         )
         
         await self.js.add_stream(stream_config)
@@ -229,16 +233,20 @@ class InfrastructureManager:
     
     async def _update_stream(self, stream_def: Dict[str, Any]):
         """Update an existing JetStream stream"""
+        # Get full configuration from NATSConfigurator
+        configurator = NATSConfigurator()
+        full_config = configurator.streams.get(stream_def["name"], {})
+        
         stream_config = StreamConfig(
             name=stream_def["name"],
             subjects=stream_def["subjects"],
             description=stream_def["description"],
-            retention=RetentionPolicy.LIMITS,
-            storage=StorageType.FILE,
-            max_age=self.config.message_ttl,
-            max_msgs=10000,
+            retention=full_config.get('retention', RetentionPolicy.LIMITS),
+            storage=full_config.get('storage', StorageType.FILE),
+            max_age=full_config.get('max_age', self.config.message_ttl).total_seconds(),
+            max_msgs=full_config.get('max_msgs', 10000),
             max_bytes=100 * 1024 * 1024,
-            duplicate_window=60
+            duplicate_window=full_config.get('duplicate_window', timedelta(minutes=1)).total_seconds()
         )
         
         await self.js.update_stream(stream_config)

@@ -23,7 +23,7 @@ from nats.js import JetStreamContext
 from nats.aio.msg import Msg
 
 from shared.config import get_config
-from shared.logging import get_structured_logger, StructuredLogger
+from shared.rag_logging import get_structured_logger, StructuredLogger
 from shared.models import serialize_for_nats, deserialize_from_nats, BaseModel
 
 logger = logging.getLogger(__name__)
@@ -246,7 +246,7 @@ class BaseHandler(ABC):
     
     async def start(self) -> bool:
         """
-        Start the handler and begin message processing
+        Start the handler and begin message processing with proper work queue support
         
         Returns:
             bool: True if started successfully
@@ -260,28 +260,146 @@ class BaseHandler(ABC):
             if not await self.connect():
                 return False
             
-            # Create subscription
+            # Get configuration
             subject = self.get_subscription_subject()
             consumer_config = self.get_consumer_config()
+            durable_name = consumer_config.get('durable_name', f"{self.handler_name}-consumer")
             
-            self.subscription = await self.js.subscribe(
-                subject,
-                durable=consumer_config.get('durable_name', f"{self.handler_name}-consumer"),
-                cb=self._message_handler,
-                manual_ack=consumer_config.get('manual_ack', True),
-                pending_msgs_limit=consumer_config.get('pending_msgs_limit', max(100, self.max_workers * 10)),
-                pending_bytes_limit=consumer_config.get('pending_bytes_limit', 10 * 1024 * 1024)  # 10MB
+            self.logger.info(
+                "Creating work queue subscription",
+                handler_name=self.handler_name,
+                subject=subject,
+                durable_name=durable_name,
+                manual_ack=consumer_config.get('manual_ack', True)
             )
+            
+            # For work queues, bind to existing durable consumer or create if needed
+            try:
+                # Try to get existing consumer info
+                await self.js.consumer_info(self._get_stream_name(subject), durable_name)
+                self.logger.info(
+                    "Binding to existing durable consumer",
+                    durable_name=durable_name,
+                    stream=self._get_stream_name(subject)
+                )
+            except Exception:
+                self.logger.info(
+                    "Existing consumer not found, will create new one",
+                    durable_name=durable_name
+                )
+            
+            # For work queues, use pull subscription for better control
+            self.subscription = await self.js.pull_subscribe(
+                subject,
+                durable=durable_name
+            )
+            
+            # Start message processing loop
+            self.processing_task = asyncio.create_task(self._pull_message_loop())
             
             self.is_running = True
             self.start_time = datetime.now()
-            self.logger.info(f"Handler '{self.handler_name}' started, subscribed to '{subject}'")
+            self.logger.info(
+                "Handler started with work queue subscription",
+                handler_name=self.handler_name,
+                subject=subject,
+                durable_name=durable_name,
+                max_ack_pending=consumer_config.get('max_ack_pending', 10)
+            )
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start handler: {e}")
+            self.logger.error(
+                "Failed to start handler",
+                error=e,
+                handler_name=self.handler_name,
+                error_type=type(e).__name__
+            )
             await self.disconnect()
             return False
+    
+    def _get_stream_name(self, subject: str) -> str:
+        """
+        Get stream name from subject (simple mapping for common patterns)
+        
+        Args:
+            subject: NATS subject
+            
+        Returns:
+            str: Stream name
+        """
+        # Map subjects to stream names
+        stream_mapping = {
+            'documents.download': 'documents_download',
+            'documents.chunks': 'documents_chunks', 
+            'documents.embeddings': 'documents_embeddings',
+            'documents.complete': 'documents_complete',
+            'chat.questions': 'chat_questions',
+            'system.metrics': 'system_metrics'
+        }
+        
+        return stream_mapping.get(subject, subject.replace('.', '_'))
+    
+    async def _pull_message_loop(self):
+        """
+        Pull message loop for work queue processing
+        """
+        while self.is_running and not self.shutdown_requested:
+            try:
+                # Pull messages with timeout
+                batch_size = min(self.max_workers, 5)  # Pull up to max_workers messages
+                messages = await self.subscription.fetch(batch_size, timeout=30.0)
+                
+                if messages:
+                    # Process messages concurrently
+                    tasks = []
+                    for msg in messages:
+                        # Use semaphore to limit concurrent processing
+                        task = asyncio.create_task(self._process_pulled_message(msg))
+                        tasks.append(task)
+                    
+                    # Wait for all messages in batch to complete
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    
+            except asyncio.TimeoutError:
+                # Timeout is normal for pull subscriptions, just continue
+                continue
+                
+            except Exception as e:
+                self.logger.error(
+                    "Error in pull message loop",
+                    error=e,
+                    handler_name=self.handler_name,
+                    error_type=type(e).__name__
+                )
+                # Wait before retrying
+                await asyncio.sleep(5.0)
+                
+                # Check subscription health
+                await self._check_subscription_health()
+        
+        self.logger.info(
+            "Pull message loop stopped",
+            handler_name=self.handler_name
+        )
+    
+    async def _process_pulled_message(self, msg):
+        """
+        Process a message pulled from the queue
+        
+        Args:
+            msg: NATS message
+        """
+        async with self.processing_semaphore:
+            try:
+                await self._process_single_message(msg)
+            except Exception as e:
+                self.logger.error(
+                    "Message processing failed",
+                    error=e,
+                    handler_name=self.handler_name,
+                    error_type=type(e).__name__
+                )
     
     async def stop(self):
         """Stop the handler gracefully"""
@@ -290,6 +408,14 @@ class BaseHandler(ABC):
         
         self.logger.info(f"Stopping handler '{self.handler_name}'...")
         self.shutdown_requested = True
+        
+        # Cancel processing task if it exists
+        if hasattr(self, 'processing_task') and self.processing_task:
+            self.processing_task.cancel()
+            try:
+                await self.processing_task
+            except asyncio.CancelledError:
+                pass
         
         # Wait for current processing to complete
         for _ in range(self.max_workers):
@@ -322,7 +448,18 @@ class BaseHandler(ABC):
         
         # Acquire processing slot
         async with self.processing_semaphore:
-            await self._process_single_message(msg)
+            try:
+                await self._process_single_message(msg)
+            except Exception as e:
+                # Log processing error but don't let it break the subscription
+                self.logger.error(
+                    "Message processing failed in handler wrapper",
+                    error=e,
+                    handler_name=self.handler_name,
+                    error_type=type(e).__name__
+                )
+                # Schedule subscription health check after processing errors
+                asyncio.create_task(self._check_subscription_health())
     
     async def _process_single_message(self, msg: Msg):
         """
@@ -376,13 +513,38 @@ class BaseHandler(ABC):
                 )
                 raise MessageProcessingError(f"Processing timeout after {processing_timeout}s")
             
-            # Publish result if needed
-            result_subject = self.get_result_subject(data)
-            if result_subject and result:
-                await self._publish_result_with_retry(result_subject, result, message_id)
-            
-            # Acknowledge message
+            # ACK message immediately after processing to prevent redelivery
+            # This prevents duplicate processing even if publishing fails
             await msg.ack()
+            
+            # Publish result if needed (after ACK to prevent redelivery on failure)
+            result_subject = self.get_result_subject(data)
+            self.logger.info(
+                "Publishing result to next queue",
+                message_id=message_id,
+                result_subject=result_subject,
+                has_result=result is not None,
+                handler_name=self.handler_name
+            )
+            if result_subject and result:
+                try:
+                    await self._publish_result_with_retry(result_subject, result, message_id)
+                    self.logger.info(
+                        "Successfully published result to next queue",
+                        message_id=message_id,
+                        result_subject=result_subject,
+                        handler_name=self.handler_name
+                    )
+                except Exception as publish_error:
+                    # Log publish failure but don't fail the message (already ACK'd)
+                    self.logger.error(
+                        "Failed to publish result after ACK - result may be lost",
+                        error=publish_error,
+                        message_id=message_id,
+                        result_subject=result_subject,
+                        handler_name=self.handler_name,
+                        error_type=type(publish_error).__name__
+                    )
             
             # Update statistics and log success
             self.message_count += 1
@@ -542,18 +704,29 @@ class BaseHandler(ABC):
     
     async def _publish_result_with_retry(self, subject: str, result: Dict[str, Any], message_id: str):
         """
-        Publish processing result to NATS with retry logic
+        Publish processing result to NATS with enhanced retry logic and fallback mechanisms
         
         Args:
             subject: NATS subject to publish to
             result: Result data
             message_id: Original message ID
         """
-        max_retries = 3
+        max_retries = 5  # Increased retry attempts
         retry_delay = 1.0
         
         for attempt in range(max_retries):
             try:
+                # Check JetStream context health before publishing
+                if not self.js:
+                    self.logger.warning(
+                        "JetStream context lost, attempting reconnection",
+                        message_id=message_id,
+                        attempt=attempt + 1
+                    )
+                    await self.connect()
+                    if not self.js:
+                        raise ConnectionError("Failed to restore JetStream context")
+                
                 # Add metadata
                 result_data = {
                     'handler': self.handler_name,
@@ -564,22 +737,31 @@ class BaseHandler(ABC):
                 
                 # Serialize and publish
                 payload = json.dumps(result_data, default=str).encode('utf-8')
-                await self.js.publish(subject, payload)
+                self.logger.debug(
+                    "Attempting to publish to JetStream",
+                    message_id=message_id,
+                    subject=subject,
+                    handler_name=self.handler_name,
+                    payload_size=len(payload),
+                    attempt=attempt + 1
+                )
+                
+                # Use timeout for publish operation
+                await asyncio.wait_for(self.js.publish(subject, payload), timeout=10.0)
                 
                 self.logger.debug(
-                    "Published result successfully",
+                    "JetStream publish completed successfully",
                     message_id=message_id,
                     subject=subject,
                     handler_name=self.handler_name,
                     attempt=attempt + 1,
                     result_size=len(payload)
                 )
-                return
+                return  # Success!
                 
-            except Exception as e:
+            except asyncio.TimeoutError:
                 self.logger.warning(
-                    f"Failed to publish result (attempt {attempt + 1})",
-                    error=e,
+                    f"Publish timeout (attempt {attempt + 1})",
                     message_id=message_id,
                     subject=subject,
                     handler_name=self.handler_name,
@@ -587,16 +769,65 @@ class BaseHandler(ABC):
                     max_retries=max_retries
                 )
                 
+            except (ConnectionError, nats.errors.NoRespondersError, nats.js.errors.NoStreamResponseError) as e:
+                self.logger.warning(
+                    f"Connection/stream error publishing result (attempt {attempt + 1})",
+                    error=e,
+                    message_id=message_id,
+                    subject=subject,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error_type=type(e).__name__
+                )
+                
+                # Try to reconnect on connection errors
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2
+                    try:
+                        await self.connect()
+                    except Exception as reconnect_error:
+                        self.logger.warning(
+                            "Reconnection attempt failed",
+                            error=reconnect_error,
+                            message_id=message_id
+                        )
+                        
+            except Exception as e:
+                self.logger.warning(
+                    f"Unexpected error publishing result (attempt {attempt + 1})",
+                    error=e,
+                    message_id=message_id,
+                    subject=subject,
+                    handler_name=self.handler_name,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error_type=type(e).__name__
+                )
+                
+            # Wait before retry with exponential backoff
+            if attempt < max_retries - 1:
+                self.logger.info(
+                    f"Retrying publish in {retry_delay:.1f}s",
+                    message_id=message_id,
+                    retry_delay=retry_delay,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 30.0)  # Cap at 30 seconds
         
+        # All retries failed - this is a critical error
         self.logger.error(
-            "Failed to publish result after all retries",
+            "Failed to publish result after all retries - message processing incomplete",
             message_id=message_id,
             subject=subject,
             handler_name=self.handler_name,
             max_retries=max_retries
+        )
+        
+        # Raise exception to trigger message retry/NAK
+        raise MessageProcessingError(
+            f"Failed to publish result to {subject} after {max_retries} attempts"
         )
     
     async def _publish_error_with_context(
@@ -667,6 +898,121 @@ class BaseHandler(ABC):
     async def _on_error(self, error):
         """Callback for NATS errors"""
         self.logger.error(f"NATS error: {error}")
+        # Schedule subscription health check on NATS errors
+        asyncio.create_task(self._check_subscription_health())
+    
+    async def _check_subscription_health(self):
+        """
+        Check if subscription is healthy and recover if needed
+        """
+        if not self.is_running:
+            return
+            
+        try:
+            # Wait a bit before checking to avoid rapid reconnection attempts
+            await asyncio.sleep(5.0)
+            
+            if not self.subscription or not self.js:
+                self.logger.warning("Subscription or JetStream context lost, attempting recovery")
+                await self._recover_subscription()
+                return
+            
+            # Check consumer active interest
+            subject = self.get_subscription_subject()
+            consumer_config = self.get_consumer_config()
+            durable_name = consumer_config.get('durable_name', f"{self.handler_name}-consumer")
+            
+            try:
+                consumer_info = await self.js.consumer_info(self._get_stream_name(subject), durable_name)
+                
+                # Check if consumer has active interest
+                if not hasattr(consumer_info, 'push_bound') or not consumer_info.push_bound:
+                    self.logger.warning(
+                        "Consumer has no active interest, attempting subscription recovery",
+                        durable_name=durable_name,
+                        handler_name=self.handler_name
+                    )
+                    await self._recover_subscription()
+                else:
+                    self.logger.debug(
+                        "Subscription health check passed",
+                        durable_name=durable_name,
+                        active_interest=True
+                    )
+                    
+            except Exception as e:
+                self.logger.error(
+                    "Consumer health check failed",
+                    error=e,
+                    durable_name=durable_name,
+                    handler_name=self.handler_name
+                )
+                await self._recover_subscription()
+                
+        except Exception as e:
+            self.logger.error(
+                "Subscription health check failed",
+                error=e,
+                handler_name=self.handler_name
+            )
+    
+    async def _recover_subscription(self):
+        """
+        Recover subscription after connection issues
+        """
+        if not self.is_running:
+            return
+            
+        self.logger.info(
+            "Attempting subscription recovery",
+            handler_name=self.handler_name
+        )
+        
+        try:
+            # Clean up old subscription
+            if self.subscription:
+                try:
+                    await self.subscription.unsubscribe()
+                except Exception:
+                    pass  # Ignore cleanup errors
+                self.subscription = None
+            
+            # Reconnect if needed
+            if not self.nc or self.nc.is_closed:
+                await self.connect()
+            
+            # Recreate pull subscription
+            subject = self.get_subscription_subject()
+            consumer_config = self.get_consumer_config()
+            durable_name = consumer_config.get('durable_name', f"{self.handler_name}-consumer")
+            
+            self.subscription = await self.js.pull_subscribe(
+                subject,
+                durable=durable_name
+            )
+            
+            # Restart message processing loop
+            if hasattr(self, 'processing_task'):
+                self.processing_task.cancel()
+            self.processing_task = asyncio.create_task(self._pull_message_loop())
+            
+            self.logger.info(
+                "Subscription recovery successful",
+                handler_name=self.handler_name,
+                subject=subject,
+                durable_name=durable_name
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                "Subscription recovery failed",
+                error=e,
+                handler_name=self.handler_name,
+                error_type=type(e).__name__
+            )
+            # Schedule another recovery attempt
+            asyncio.create_task(asyncio.sleep(30.0))
+            asyncio.create_task(self._recover_subscription())
     
     def get_stats(self) -> Dict[str, Any]:
         """

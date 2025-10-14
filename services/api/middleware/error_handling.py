@@ -27,7 +27,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 
-from shared.logging import get_structured_logger, StructuredLogger
+from shared.rag_logging import get_structured_logger, StructuredLogger
 from shared.config import get_config
 
 

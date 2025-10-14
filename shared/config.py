@@ -367,7 +367,7 @@ class NATSConfig(BaseSettings):
     
     # TTL settings
     message_ttl: int = Field(
-        default=3600,
+        default=900,  # 15 minutes
         env="MESSAGE_TTL",
         ge=60,
         le=86400,
@@ -1139,7 +1139,7 @@ def create_development_config() -> AppConfig:
         debug=True,
         log_level="DEBUG",
         reload=True,
-        message_ttl=300,  # 5 minutes for development
+        message_ttl=900,  # 15 minutes for development
         session_ttl=1800,  # 30 minutes for development
         max_document_workers=1,
         max_embedding_workers=1,
@@ -1154,7 +1154,7 @@ def create_production_config() -> AppConfig:
         debug=False,
         log_level="INFO",
         reload=False,
-        message_ttl=3600,  # 1 hour
+        message_ttl=900,  # 15 minutes
         session_ttl=7200,  # 2 hours
     )
 
@@ -1165,7 +1165,7 @@ def create_testing_config() -> AppConfig:
         environment="testing",
         debug=True,
         log_level="WARNING",
-        message_ttl=60,  # 1 minute for fast tests
+        message_ttl=900,  # 15 minutes for tests
         session_ttl=300,  # 5 minutes for tests
         max_document_workers=1,
         max_embedding_workers=1,

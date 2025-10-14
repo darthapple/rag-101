@@ -30,7 +30,7 @@ from handlers.base import BaseHandler, MessageProcessingError
 sys.path.append('/Users/fadriano/Projetos/Demos/rag-101')
 from shared.database import MilvusDatabase, MilvusConnectionError, MilvusOperationError
 from shared.models import Question, Answer, AnswerSource
-from shared.messaging import NATSClient, create_nats_client
+# Removed NATSClient and create_nats_client - using infra_manager instead
 
 
 class QuestionProcessingError(Exception):
@@ -68,9 +68,6 @@ class AnswerHandler(BaseHandler):
         # Configuration
         self.question_timeout = self.config.question_timeout
         self.max_retries = self.config.max_retries
-        
-        # NATS messaging configuration
-        self.messaging = create_nats_client()
         
         # RAG configuration
         self.top_k_documents = 5  # Number of documents to retrieve
@@ -149,14 +146,14 @@ RESPOSTA:""",
     
     def get_subscription_subject(self) -> str:
         """Subscribe to questions topic"""
-        return self.messaging.topics['questions']
+        return 'chat.questions'
     
     def get_consumer_config(self) -> Dict[str, Any]:
         """Consumer configuration for question processing"""
         return {
             'durable_name': 'chat-question-worker',
             'manual_ack': True,
-            'pending_msgs_limit': self.max_workers * 3,
+            # No pending_msgs_limit - let NATS handle queuing
             'ack_wait': self.question_timeout * 2
         }
     
@@ -190,9 +187,9 @@ RESPOSTA:""",
                 'model_used': result.get('model_used')
             }
             
-            # Serialize and publish directly (skip the base handler's wrapper)
+            # Serialize and publish directly using infra_manager connection
             payload = json.dumps(answer_message, default=str).encode('utf-8')
-            await self.js.publish(subject, payload)
+            await self.infra_manager.js.publish(subject, payload)
             
             self.logger.info(
                 "Published answer in WebSocket format",
